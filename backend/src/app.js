@@ -10,9 +10,23 @@ const testRoutes = require('./routes/testRoutes');
 
 const app = express();
 
+const normalizeOrigin = (value) => String(value || '').trim().replace(/\/+$/, '');
+const allowedOrigins = new Set((env.frontendOrigins || []).map((origin) => normalizeOrigin(origin)));
+
 app.use(
 	cors({
-		origin: env.frontendUrl,
+    origin: (origin, callback) => {
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const normalizedOrigin = normalizeOrigin(origin);
+      if (allowedOrigins.has(normalizedOrigin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error('CORS origin not allowed'));
+    },
 		credentials: true,
 	})
 );
