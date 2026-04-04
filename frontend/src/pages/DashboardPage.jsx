@@ -290,7 +290,7 @@ function DashboardPage({
     return {
       cells: paddedDays,
     };
-  }, [contributionCalendar.days, contributionCalendar.year]);
+  }, [contributionCalendar.days]);
 
   const getContributionLevel = (submissions) => {
     if (submissions <= 0) return 0;

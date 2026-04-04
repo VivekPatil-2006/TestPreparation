@@ -1,19 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 const QUESTION_COUNT = 20;
-
-const formatDateTime = (value) => {
-  if (!value) {
-    return 'recently';
-  }
-
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return 'recently';
-  }
-
-  return date.toLocaleString();
-};
 
 const formatSeconds = (secondsLeft) => {
   const minutes = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
@@ -82,7 +69,7 @@ const detectAndFormatProgram = (text) => {
     program = program
       .replace(/\\n/g, '\n')
       .replace(/\\t/g, '  ')
-      .replace(/\\\"/g, '"') // Handle escaped quotes
+      .replace(/\\"/g, '"') // Handle escaped quotes
       .replace(/\s+/g, ' '); // Normalize whitespace first
     
     // Add line breaks for better readability
@@ -236,12 +223,6 @@ function TestPage({
     };
   }, [session, onSessionStateChange]);
 
-  useEffect(() => {
-    if (session && secondsLeft === 0 && !submitting) {
-      void submitSession();
-    }
-  }, [secondsLeft, session, submitting]);
-
   const requestFullscreen = async () => {
     if (document.documentElement.requestFullscreen) {
       await document.documentElement.requestFullscreen().catch(() => undefined);
@@ -318,7 +299,7 @@ function TestPage({
     }
   };
 
-  const submitSession = async () => {
+  const submitSession = useCallback(async () => {
     if (!session || submitting) {
       return;
     }
@@ -352,7 +333,13 @@ function TestPage({
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [answers, onRefreshHistory, onSessionStateChange, onSubmitTest, session, submitting]);
+
+  useEffect(() => {
+    if (session && secondsLeft === 0 && !submitting) {
+      void submitSession();
+    }
+  }, [secondsLeft, session, submitting, submitSession]);
 
   const handleCancelConfirm = () => {
     setShowConfirmDialog(false);
