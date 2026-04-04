@@ -33,6 +33,14 @@ app.use(
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+app.get('/', (req, res) => {
+  res.status(200).json({
+    name: 'TestPreparation API',
+    status: 'ok',
+    health: '/api/health',
+  });
+});
+
 app.get('/api/health', (req, res) => {
 	res.status(200).json({
 		status: 'ok',
