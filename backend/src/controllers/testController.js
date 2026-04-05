@@ -4,6 +4,7 @@ const {
   startTestSession,
   completeTestSession,
   getTestHistory,
+  getTestSessionDetails,
   updateQuestionRow,
 } = require('../services/testService');
 
@@ -65,6 +66,17 @@ const history = async (req, res, next) => {
   }
 };
 
+const historyDetails = async (req, res, next) => {
+  try {
+    const adminEmail = req.user?.email;
+    const sessionId = req.params.sessionId;
+    const data = await getTestSessionDetails({ adminEmail, sessionId });
+    res.status(200).json(data);
+  } catch (error) {
+    next(error);
+  }
+};
+
 const updateQuestion = async (req, res, next) => {
   try {
     const { tableName, rowId, questionText, options } = req.body || {};
@@ -85,5 +97,6 @@ module.exports = {
   startTest,
   submitTest,
   history,
+  historyDetails,
   updateQuestion,
 };

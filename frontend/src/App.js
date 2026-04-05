@@ -316,6 +316,7 @@ function App() {
               history={history}
               historyLoading={historyLoading}
               historyError={historyError}
+              onLoadSessionDetails={(sessionId) => api.getTestHistoryDetails(sessionId)}
               onBack={() => setViewingHistory(false)}
             />
           ) : (

@@ -314,6 +314,52 @@ const pickQuestionsRoundRobin = (questionPools, maxCount) => {
   return selected;
 };
 
+const buildDetailedResults = ({ storedQuestions = [], answers = {}, consideredCount }) => {
+  const safeCount = Math.min(
+    Math.max(Number(consideredCount) || storedQuestions.length, 1),
+    storedQuestions.length
+  );
+  const scoredQuestions = storedQuestions.slice(0, safeCount);
+  let obtainedMarks = 0;
+
+  const detailedResults = scoredQuestions.map((question) => {
+    const selectedAnswer = answers[String(question.questionKey)] ?? answers[String(question.rowId)] ?? answers[question.rowId] ?? '';
+    const normalizedSelected = String(selectedAnswer).trim().toLowerCase();
+    const normalizedCorrect = String(question.correctAnswer || '').trim().toLowerCase();
+    const isCorrect = normalizedSelected === normalizedCorrect;
+
+    const options = Array.isArray(question.options)
+      ? question.options.map((option) => String(option == null ? '' : option).trim())
+      : [];
+    const selectedOptionIndex = options.findIndex((option) => option.toLowerCase() === normalizedSelected);
+    const correctOptionIndex = options.findIndex((option) => option.toLowerCase() === normalizedCorrect);
+
+    if (isCorrect) {
+      obtainedMarks += 1;
+    }
+
+    return {
+      rowId: question.rowId,
+      questionKey: question.questionKey,
+      sourceTable: question.sourceTable,
+      rowNumber: question.rowNumber,
+      questionText: question.questionText || '',
+      options,
+      selectedAnswer: String(selectedAnswer || ''),
+      correctAnswer: question.correctAnswer,
+      selectedOptionIndex,
+      correctOptionIndex,
+      isCorrect,
+    };
+  });
+
+  return {
+    obtainedMarks,
+    consideredCount: safeCount,
+    detailedResults,
+  };
+};
+
 const startTestSession = async ({ adminEmail, tableName, tableNames = [], startRow = 1, startRowsByTable = {}, questionCount = DEFAULT_QUESTION_COUNT, timerMode = 'per_question', customMinutes }) => {
   ensureDbConnection();
   await ensureTestSessionTable();
@@ -416,42 +462,10 @@ const completeTestSession = async ({ sessionId, adminEmail, answers = {}, consid
   }
 
   const storedQuestions = Array.isArray(session.questions) ? session.questions : [];
-  const safeConsideredCount = Math.min(
-    Math.max(Number(consideredQuestionCount) || storedQuestions.length, 1),
-    storedQuestions.length
-  );
-  const scoredQuestions = storedQuestions.slice(0, safeConsideredCount);
-  let obtainedMarks = 0;
-
-  const detailedResults = scoredQuestions.map((question) => {
-    const selectedAnswer = answers[String(question.questionKey)] ?? answers[String(question.rowId)] ?? answers[question.rowId] ?? '';
-    const normalizedSelected = String(selectedAnswer).trim().toLowerCase();
-    const normalizedCorrect = String(question.correctAnswer || '').trim().toLowerCase();
-    const isCorrect = normalizedSelected === normalizedCorrect;
-
-    const options = Array.isArray(question.options)
-      ? question.options.map((option) => String(option == null ? '' : option).trim())
-      : [];
-    const selectedOptionIndex = options.findIndex((option) => option.toLowerCase() === normalizedSelected);
-    const correctOptionIndex = options.findIndex((option) => option.toLowerCase() === normalizedCorrect);
-
-    if (isCorrect) {
-      obtainedMarks += 1;
-    }
-
-    return {
-      rowId: question.rowId,
-      questionKey: question.questionKey,
-      sourceTable: question.sourceTable,
-      rowNumber: question.rowNumber,
-      questionText: question.questionText || '',
-      options,
-      selectedAnswer: String(selectedAnswer || ''),
-      correctAnswer: question.correctAnswer,
-      selectedOptionIndex,
-      correctOptionIndex,
-      isCorrect,
-    };
+  const { obtainedMarks, consideredCount: safeConsideredCount, detailedResults } = buildDetailedResults({
+    storedQuestions,
+    answers,
+    consideredCount: consideredQuestionCount,
   });
 
   const updateQuery = `
@@ -489,6 +503,58 @@ const completeTestSession = async ({ sessionId, adminEmail, answers = {}, consid
     totalMarks: updatedSession.total_marks,
     obtainedMarks,
     percentageScore: updatedSession.total_marks ? Math.round((obtainedMarks / updatedSession.total_marks) * 100) : 0,
+    detailedResults,
+  };
+};
+
+const getTestSessionDetails = async ({ sessionId, adminEmail }) => {
+  ensureDbConnection();
+  await ensureTestSessionTable();
+
+  const safeSessionId = Number(sessionId);
+  if (!Number.isFinite(safeSessionId) || safeSessionId < 1) {
+    const error = new Error('A valid session id is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const query = `
+    SELECT *
+    FROM ${quoteIdent(TEST_SESSION_TABLE)}
+    WHERE id = $1 AND admin_email = $2
+    LIMIT 1;
+  `;
+
+  const { rows } = await pool.query(query, [safeSessionId, adminEmail]);
+  const session = rows[0];
+
+  if (!session) {
+    const error = new Error('Test session not found.');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const storedQuestions = Array.isArray(session.questions) ? session.questions : [];
+  const storedAnswers = session.answers && typeof session.answers === 'object' ? session.answers : {};
+  const { obtainedMarks, consideredCount, detailedResults } = buildDetailedResults({
+    storedQuestions,
+    answers: storedAnswers,
+    consideredCount: session.question_count,
+  });
+
+  return {
+    sessionId: session.id,
+    tableName: session.table_name,
+    startRow: session.start_row,
+    endRow: session.end_row,
+    questionCount: consideredCount,
+    durationMinutes: session.duration_minutes,
+    totalMarks: consideredCount,
+    obtainedMarks,
+    percentageScore: consideredCount ? Math.round((obtainedMarks / consideredCount) * 100) : 0,
+    status: session.status,
+    startedAt: session.started_at,
+    completedAt: session.completed_at,
     detailedResults,
   };
 };
@@ -543,5 +609,6 @@ module.exports = {
   startTestSession,
   completeTestSession,
   getTestHistory,
+  getTestSessionDetails,
   updateQuestionRow,
 };
