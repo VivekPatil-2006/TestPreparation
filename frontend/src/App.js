@@ -5,6 +5,7 @@ import LoginPage from './pages/LoginPage';
 import TestPage from './pages/TestPage';
 import UploadPage from './pages/UploadPage';
 import HistoryPage from './pages/HistoryPage';
+import geminiLogo from './assets/gemini-logo.svg';
 import { api } from './services/api';
 
 const ACTIVE_TAB_STORAGE_KEY = 'activeTab';
@@ -49,7 +50,6 @@ const NAV_ITEMS = [
 
 function App() {
   const [authToken, setAuthToken] = useState(() => localStorage.getItem('authToken') || '');
-  const [authEmail, setAuthEmail] = useState(() => localStorage.getItem('authEmail') || '');
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
     const validTabKeys = NAV_ITEMS.map((item) => item.key);
@@ -174,9 +174,7 @@ function App() {
   const handleLogin = async ({ email, password }) => {
     const result = await api.login({ email, password });
     localStorage.setItem('authToken', result.token);
-    localStorage.setItem('authEmail', result.user?.email || email);
     setAuthToken(result.token);
-    setAuthEmail(result.user?.email || email);
     setActiveTab('Dashboard');
   };
 
@@ -186,10 +184,8 @@ function App() {
     }
 
     localStorage.removeItem('authToken');
-    localStorage.removeItem('authEmail');
     localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
     setAuthToken('');
-    setAuthEmail('');
     setAnalytics(null);
     setTables([]);
     setHistory([]);
@@ -243,6 +239,8 @@ function App() {
     return result;
   };
 
+  const handleAskAiDoubt = async (payload) => api.askAiDoubt(payload);
+
   const title = useMemo(() => activeTab, [activeTab]);
 
   if (!isLoggedIn) {
@@ -254,9 +252,7 @@ function App() {
       <header className="portal-topbar">
         <div className="portal-brand">
           <div className="portal-brand-badge" aria-hidden="true">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 3L19 6V11.2C19 15.77 16.02 20.03 12 21.25C7.98 20.03 5 15.77 5 11.2V6L12 3Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
+            <img src={geminiLogo} alt="" className="portal-brand-logo" />
           </div>
           <strong>PlaceTest Admin</strong>
         </div>
@@ -345,6 +341,7 @@ function App() {
               historyError={historyError}
               onStartTest={handleStartTest}
               onSubmitTest={handleSubmitTest}
+              onAskAiDoubt={handleAskAiDoubt}
               onSessionStateChange={setTestLocked}
               onRefreshHistory={refreshProtectedData}
               onViewHistory={() => setViewingHistory(true)}
@@ -352,8 +349,6 @@ function App() {
           )
         ) : null}
       </main>
-
-      {authEmail ? <span className="portal-user-chip">Signed in as {authEmail}</span> : null}
     </div>
   );
 }

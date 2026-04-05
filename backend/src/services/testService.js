@@ -319,7 +319,15 @@ const completeTestSession = async ({ sessionId, adminEmail, answers = {} }) => {
 
   const detailedResults = storedQuestions.map((question) => {
     const selectedAnswer = answers[String(question.questionKey)] ?? answers[String(question.rowId)] ?? answers[question.rowId] ?? '';
-    const isCorrect = String(selectedAnswer).trim().toLowerCase() === String(question.correctAnswer || '').trim().toLowerCase();
+    const normalizedSelected = String(selectedAnswer).trim().toLowerCase();
+    const normalizedCorrect = String(question.correctAnswer || '').trim().toLowerCase();
+    const isCorrect = normalizedSelected === normalizedCorrect;
+
+    const options = Array.isArray(question.options)
+      ? question.options.map((option) => String(option == null ? '' : option).trim())
+      : [];
+    const selectedOptionIndex = options.findIndex((option) => option.toLowerCase() === normalizedSelected);
+    const correctOptionIndex = options.findIndex((option) => option.toLowerCase() === normalizedCorrect);
 
     if (isCorrect) {
       obtainedMarks += 1;
@@ -331,8 +339,11 @@ const completeTestSession = async ({ sessionId, adminEmail, answers = {} }) => {
       sourceTable: question.sourceTable,
       rowNumber: question.rowNumber,
       questionText: question.questionText || '',
+      options,
       selectedAnswer: String(selectedAnswer || ''),
       correctAnswer: question.correctAnswer,
+      selectedOptionIndex,
+      correctOptionIndex,
       isCorrect,
     };
   });

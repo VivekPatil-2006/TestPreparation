@@ -36,6 +36,8 @@ const getQuestionKey = (question, index) => String(question?.questionKey || ques
 
 const normalizeSelectedAnswer = (value) => String(value == null ? '' : value).trim().toLowerCase();
 
+const optionLabel = (index) => String.fromCharCode(65 + index);
+
 const detectAndFormatProgram = (text) => {
   if (!text) return { hasProgram: false, beforeProgram: '', program: '', afterProgram: '' };
   
@@ -106,6 +108,7 @@ function TestPage({
   historyError = '',
   onStartTest,
   onSubmitTest,
+  onAskAiDoubt,
   onSessionStateChange,
   onRefreshHistory,
   onViewHistory,
@@ -125,6 +128,10 @@ function TestPage({
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [finalResult, setFinalResult] = useState(null);
+  const [aiConversations, setAiConversations] = useState({});
+  const [aiInput, setAiInput] = useState('');
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState('');
   const [tabBlocked, setTabBlocked] = useState(false);
   const [fullscreenLost, setFullscreenLost] = useState(false);
 
@@ -287,6 +294,9 @@ function TestPage({
       setCurrentIndex(0);
       setAnswers({});
       setFinalResult(null);
+      setAiConversations({});
+      setAiInput('');
+      setAiError('');
       setSecondsLeft((response.durationMinutes || effectiveDurationMinutes) * 60);
       setTabBlocked(false);
       setFullscreenLost(false);
@@ -316,6 +326,9 @@ function TestPage({
       setSession(null);
       setCurrentIndex(0);
       setAnswers({});
+      setAiConversations({});
+      setAiInput('');
+      setAiError('');
       setSecondsLeft(0);
       setTabBlocked(false);
       setFullscreenLost(false);
@@ -413,6 +426,9 @@ function TestPage({
   const handleReturnToSetup = () => {
     setFinalResult(null);
     setError('');
+    setAiConversations({});
+    setAiInput('');
+    setAiError('');
     setTabBlocked(false);
     setFullscreenLost(false);
   };
@@ -422,6 +438,67 @@ function TestPage({
   const activeOptions = getQuestionOptions(activeQuestion);
   const activeQuestionKey = getQuestionKey(activeQuestion, currentIndex);
   const selectedAnswer = answers[activeQuestionKey] || '';
+  const activeAiMessages = aiConversations[activeQuestionKey] || [];
+
+  const handleSendAiDoubt = async () => {
+    if (!onAskAiDoubt || !activeQuestion) {
+      return;
+    }
+
+    const prompt = String(aiInput || '').trim();
+    if (!prompt || aiLoading) {
+      return;
+    }
+
+    const priorMessages = aiConversations[activeQuestionKey] || [];
+    const nextUserMessage = { role: 'user', content: prompt };
+
+    setAiConversations((previous) => ({
+      ...previous,
+      [activeQuestionKey]: [...priorMessages, nextUserMessage],
+    }));
+    setAiInput('');
+    setAiError('');
+    setAiLoading(true);
+
+    try {
+      const response = await onAskAiDoubt({
+        message: prompt,
+        questionText: activeQuestionText,
+        options: activeOptions,
+        selectedAnswer,
+        history: priorMessages,
+      });
+
+      const assistantReply = String(response?.reply || '').trim() || 'No response received from AI assistant.';
+      setAiConversations((previous) => ({
+        ...previous,
+        [activeQuestionKey]: [
+          ...(previous[activeQuestionKey] || []),
+          { role: 'assistant', content: assistantReply },
+        ],
+      }));
+    } catch (err) {
+      setAiError(err.message || 'Unable to reach AI assistant for this question.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleClearAiChat = () => {
+    setAiError('');
+    setAiInput('');
+    setAiConversations((previous) => {
+      const next = { ...previous };
+      delete next[activeQuestionKey];
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    setAiInput('');
+    setAiError('');
+  }, [activeQuestionKey]);
 
   if (finalResult) {
     return (
@@ -476,6 +553,9 @@ function TestPage({
               const { hasProgram, beforeProgram, program, afterProgram } = detectAndFormatProgram(item.questionText || '');
               const correctAnswerSnippet = String(item.correctAnswer || '').substring(0, 50);
               const selectedAnswerSnippet = String(item.selectedAnswer || '').substring(0, 50);
+              const options = Array.isArray(item.options) ? item.options : [];
+              const normalizedSelected = normalizeSelectedAnswer(item.selectedAnswer);
+              const normalizedCorrect = normalizeSelectedAnswer(item.correctAnswer);
               
               return (
                 <div key={item.questionKey || item.rowId} className={item.isCorrect ? 'review-row review-row-correct' : 'review-row review-row-wrong'}>
@@ -499,6 +579,38 @@ function TestPage({
                     </div>
                     
                     <div className="review-answers-section">
+                      {options.length ? (
+                        <div className="review-answer-item">
+                          <span className="review-label">Options Analysis:</span>
+                          <div className="review-options-list">
+                            {options.map((option, index) => {
+                              const normalizedOption = normalizeSelectedAnswer(option);
+                              const isSelected = normalizedOption === normalizedSelected;
+                              const isCorrect = normalizedOption === normalizedCorrect;
+                              const statusText = isSelected && isCorrect
+                                ? 'Selected • Correct'
+                                : isSelected
+                                  ? 'Selected'
+                                  : isCorrect
+                                    ? 'Correct'
+                                    : '';
+
+                              return (
+                                <div
+                                  key={`${item.questionKey || item.rowId}-option-${index}`}
+                                  className={`review-option-row${isSelected ? ' review-option-selected' : ''}${isCorrect ? ' review-option-correct' : ''}`}
+                                >
+                                  <span className="review-option-main">
+                                    <strong>{optionLabel(index)}.</strong> {option}
+                                  </span>
+                                  {statusText ? <span className="review-option-status">{statusText}</span> : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+
                       <div className="review-answer-item">
                         <span className="review-label">Your Answer:</span>
                         <span className="review-value">{selectedAnswerSnippet || '(Not answered)'}</span>
@@ -868,6 +980,50 @@ function TestPage({
           ) : (
             <div className="error-banner">This question does not have 4 options and should not appear.</div>
           )}
+
+          <div className="question-ai-panel">
+            <div className="question-ai-head">
+              <h4>Ask AI Doubt Helper</h4>
+              <span>{onAskAiDoubt ? 'Gemini Connected' : 'AI unavailable'}</span>
+            </div>
+
+            <div className="question-ai-chat" role="log" aria-live="polite">
+              {activeAiMessages.length ? (
+                activeAiMessages.map((message, index) => (
+                  <div
+                    key={`${activeQuestionKey}-ai-${index}`}
+                    className={message.role === 'assistant' ? 'question-ai-bubble ai-assistant' : 'question-ai-bubble ai-user'}
+                  >
+                    <strong>{message.role === 'assistant' ? 'AI' : 'You'}</strong>
+                    <p>{message.content}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="question-ai-empty">Ask a doubt for this question. AI will use current question and options as context.</p>
+              )}
+            </div>
+
+            {aiError ? <div className="error-banner">{aiError}</div> : null}
+
+            <div className="question-ai-input-wrap">
+              <textarea
+                value={aiInput}
+                onChange={(event) => setAiInput(event.target.value)}
+                placeholder="Example: Why is option B correct in this question?"
+                rows={3}
+                disabled={!onAskAiDoubt || aiLoading}
+              />
+
+              <div className="question-ai-actions">
+                <button type="button" onClick={handleClearAiChat} disabled={aiLoading || !activeAiMessages.length}>
+                  Clear Chat
+                </button>
+                <button type="button" onClick={handleSendAiDoubt} disabled={!onAskAiDoubt || aiLoading || !String(aiInput).trim()}>
+                  {aiLoading ? 'Thinking...' : 'Ask AI'}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="test-controls">

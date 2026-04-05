@@ -7,6 +7,7 @@ const authRoutes = require('./routes/authRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const uploadRoutes = require('./routes/uploadRoutes');
 const testRoutes = require('./routes/testRoutes');
+const aiRoutes = require('./routes/aiRoutes');
 
 const app = express();
 
@@ -52,6 +53,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
 app.use('/api/upload', authMiddleware, uploadRoutes);
 app.use('/api/test', authMiddleware, testRoutes);
+app.use('/api/ai', authMiddleware, aiRoutes);
 
 app.use((error, req, res, next) => {
   // Handle multer file size errors

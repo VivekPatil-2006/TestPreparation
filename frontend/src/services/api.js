@@ -39,6 +39,7 @@ export const api = {
   startTest: (payload) => request('/test/start', { method: 'POST', body: JSON.stringify(payload) }),
   submitTest: (payload) => request('/test/submit', { method: 'POST', body: JSON.stringify(payload) }),
   getTestHistory: () => request('/test/history'),
+  askAiDoubt: (payload) => request('/ai/doubt', { method: 'POST', body: JSON.stringify(payload) }),
   uploadCsv: (file) => {
     const formData = new FormData();
     formData.append('file', file);
