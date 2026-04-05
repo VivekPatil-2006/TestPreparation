@@ -20,22 +20,17 @@ function HistoryPage({ history = [], historyLoading = false, historyError = '', 
   const [filterTable, setFilterTable] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [sortBy, setSortBy] = useState('date'); // date, score, table
-  const [expandedSessionId, setExpandedSessionId] = useState(null);
+  const [selectedSessionId, setSelectedSessionId] = useState(null);
   const [detailsBySessionId, setDetailsBySessionId] = useState({});
   const [detailsLoadingId, setDetailsLoadingId] = useState(null);
   const [detailsError, setDetailsError] = useState('');
 
-  const handleToggleSessionDetails = async (sessionId) => {
+  const handleOpenSessionDetails = async (sessionId) => {
     if (!sessionId) {
       return;
     }
 
-    if (expandedSessionId === sessionId) {
-      setExpandedSessionId(null);
-      return;
-    }
-
-    setExpandedSessionId(sessionId);
+    setSelectedSessionId(sessionId);
     setDetailsError('');
 
     if (detailsBySessionId[sessionId] || !onLoadSessionDetails) {
@@ -54,6 +49,11 @@ function HistoryPage({ history = [], historyLoading = false, historyError = '', 
     } finally {
       setDetailsLoadingId(null);
     }
+  };
+
+  const handleBackToHistoryList = () => {
+    setSelectedSessionId(null);
+    setDetailsError('');
   };
 
   // Get unique tables for filter
@@ -106,6 +106,12 @@ function HistoryPage({ history = [], historyLoading = false, historyError = '', 
     };
   }, [filteredHistory]);
 
+  const selectedHistoryItem = useMemo(
+    () => history.find((item) => String(item.sessionId) === String(selectedSessionId)),
+    [history, selectedSessionId]
+  );
+  const selectedDetails = selectedSessionId ? detailsBySessionId[selectedSessionId] : null;
+
   if (historyLoading) {
     return (
       <section className="history-page">
@@ -121,6 +127,126 @@ function HistoryPage({ history = [], historyLoading = false, historyError = '', 
         </div>
 
         <div className="history-loading">Loading history...</div>
+      </section>
+    );
+  }
+
+  if (selectedSessionId) {
+    return (
+      <section className="history-page">
+        <div className="history-header">
+          <button className="history-back-button" onClick={onBack}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M20 11H7.41l5.29-5.29c.39-.39.39-1.02 0-1.41-.39-.39-1.02-.39-1.41 0l-7 7c-.39.39-.39 1.02 0 1.41l7 7c.39.39 1.02.39 1.41 0 .39-.39.39-1.02 0-1.41L7.41 13H20c.55 0 1-.45 1-1s-.45-1-1-1z" />
+            </svg>
+            <span>Back to Test</span>
+          </button>
+          <div>
+            <h1>History Details</h1>
+            <p>Detailed answer review for selected session</p>
+          </div>
+        </div>
+
+        <div className="history-detail-view">
+          <div className="history-detail-actions">
+            <button type="button" className="history-view-details-btn" onClick={handleBackToHistoryList}>
+              Back to History
+            </button>
+          </div>
+
+          {selectedHistoryItem ? (
+            <div className="history-detail-summary">
+              <div className="history-detail-summary-item">
+                <span>Table</span>
+                <strong>{selectedHistoryItem.tableName}</strong>
+              </div>
+              <div className="history-detail-summary-item">
+                <span>Date</span>
+                <strong>{formatDateTime(selectedHistoryItem.completedAt || selectedHistoryItem.startedAt)}</strong>
+              </div>
+              <div className="history-detail-summary-item">
+                <span>Score</span>
+                <strong>{selectedHistoryItem.obtainedMarks ?? 0}/{selectedHistoryItem.totalMarks ?? selectedHistoryItem.questionCount}</strong>
+              </div>
+              <div className="history-detail-summary-item">
+                <span>Percentage</span>
+                <strong>{selectedHistoryItem.percentageScore ?? 0}%</strong>
+              </div>
+            </div>
+          ) : null}
+
+          {detailsLoadingId === selectedSessionId ? <p className="history-details-loading">Loading test details...</p> : null}
+          {detailsError ? <div className="error-banner">{detailsError}</div> : null}
+
+          {selectedDetails?.detailedResults?.length ? (
+            <div className="test-review-list">
+              {(selectedDetails.detailedResults || []).map((detail) => {
+                const options = Array.isArray(detail.options) ? detail.options : [];
+                const normalizedSelected = normalizeSelectedAnswer(detail.selectedAnswer);
+                const normalizedCorrect = normalizeSelectedAnswer(detail.correctAnswer);
+
+                return (
+                  <div key={detail.questionKey || `${selectedSessionId}-${detail.rowId}`} className={detail.isCorrect ? 'review-row review-row-correct' : 'review-row review-row-wrong'}>
+                    <div className="review-row-content">
+                      <div className="review-row-header">
+                        <strong>Row {detail.rowNumber}</strong>
+                        <span className={detail.isCorrect ? 'review-badge-correct' : 'review-badge-wrong'}>
+                          {detail.isCorrect ? '✓ Correct' : '✗ Wrong'}
+                        </span>
+                      </div>
+
+                      <div className="review-question-section">
+                        <p className="review-section-label">Question:</p>
+                        <p className="review-text">{detail.questionText || '(No question text)'}</p>
+                      </div>
+
+                      {options.length ? (
+                        <div className="review-answer-item">
+                          <span className="review-label">Options Analysis:</span>
+                          <div className="review-options-list">
+                            {options.map((option, index) => {
+                              const normalizedOption = normalizeSelectedAnswer(option);
+                              const isSelected = normalizedOption === normalizedSelected;
+                              const isCorrect = normalizedOption === normalizedCorrect;
+                              const statusText = isSelected && isCorrect
+                                ? 'Selected • Correct'
+                                : isSelected
+                                  ? 'Selected'
+                                  : isCorrect
+                                    ? 'Correct'
+                                    : '';
+
+                              return (
+                                <div
+                                  key={`${detail.questionKey || detail.rowId}-option-${index}`}
+                                  className={`review-option-row${isSelected ? ' review-option-selected' : ''}${isCorrect ? ' review-option-correct' : ''}`}
+                                >
+                                  <span className="review-option-main">
+                                    <strong>{optionLabel(index)}.</strong> {option}
+                                  </span>
+                                  {statusText ? <span className="review-option-status">{statusText}</span> : null}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="review-answer-item">
+                        <span className="review-label">Your Answer:</span>
+                        <span className="review-value">{detail.selectedAnswer || '(Not answered)'}</span>
+                      </div>
+                      <div className="review-answer-item">
+                        <span className="review-label">Correct Answer:</span>
+                        <span className="review-value">{detail.correctAnswer || '(Not available)'}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
       </section>
     );
   }
@@ -275,86 +401,10 @@ function HistoryPage({ history = [], historyLoading = false, historyError = '', 
                     <button
                       type="button"
                       className="history-view-details-btn"
-                      onClick={() => handleToggleSessionDetails(item.sessionId)}
+                      onClick={() => handleOpenSessionDetails(item.sessionId)}
                     >
-                      {expandedSessionId === item.sessionId ? 'Hide Details' : 'View Details'}
+                      View Details
                     </button>
-                  </div>
-                ) : null}
-
-                {expandedSessionId === item.sessionId ? (
-                  <div className="history-details-panel">
-                    {detailsLoadingId === item.sessionId ? <p className="history-details-loading">Loading test details...</p> : null}
-                    {detailsError ? <div className="error-banner">{detailsError}</div> : null}
-
-                    {detailsBySessionId[item.sessionId]?.detailedResults?.length ? (
-                      <div className="test-review-list">
-                        {(detailsBySessionId[item.sessionId].detailedResults || []).map((detail) => {
-                          const options = Array.isArray(detail.options) ? detail.options : [];
-                          const normalizedSelected = normalizeSelectedAnswer(detail.selectedAnswer);
-                          const normalizedCorrect = normalizeSelectedAnswer(detail.correctAnswer);
-
-                          return (
-                            <div key={detail.questionKey || `${item.sessionId}-${detail.rowId}`} className={detail.isCorrect ? 'review-row review-row-correct' : 'review-row review-row-wrong'}>
-                              <div className="review-row-content">
-                                <div className="review-row-header">
-                                  <strong>Row {detail.rowNumber}</strong>
-                                  <span className={detail.isCorrect ? 'review-badge-correct' : 'review-badge-wrong'}>
-                                    {detail.isCorrect ? '✓ Correct' : '✗ Wrong'}
-                                  </span>
-                                </div>
-
-                                <div className="review-question-section">
-                                  <p className="review-section-label">Question:</p>
-                                  <p className="review-text">{detail.questionText || '(No question text)'}</p>
-                                </div>
-
-                                {options.length ? (
-                                  <div className="review-answer-item">
-                                    <span className="review-label">Options Analysis:</span>
-                                    <div className="review-options-list">
-                                      {options.map((option, index) => {
-                                        const normalizedOption = normalizeSelectedAnswer(option);
-                                        const isSelected = normalizedOption === normalizedSelected;
-                                        const isCorrect = normalizedOption === normalizedCorrect;
-                                        const statusText = isSelected && isCorrect
-                                          ? 'Selected • Correct'
-                                          : isSelected
-                                            ? 'Selected'
-                                            : isCorrect
-                                              ? 'Correct'
-                                              : '';
-
-                                        return (
-                                          <div
-                                            key={`${detail.questionKey || detail.rowId}-option-${index}`}
-                                            className={`review-option-row${isSelected ? ' review-option-selected' : ''}${isCorrect ? ' review-option-correct' : ''}`}
-                                          >
-                                            <span className="review-option-main">
-                                              <strong>{optionLabel(index)}.</strong> {option}
-                                            </span>
-                                            {statusText ? <span className="review-option-status">{statusText}</span> : null}
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-                                ) : null}
-
-                                <div className="review-answer-item">
-                                  <span className="review-label">Your Answer:</span>
-                                  <span className="review-value">{detail.selectedAnswer || '(Not answered)'}</span>
-                                </div>
-                                <div className="review-answer-item">
-                                  <span className="review-label">Correct Answer:</span>
-                                  <span className="review-value">{detail.correctAnswer || '(Not available)'}</span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
               </article>

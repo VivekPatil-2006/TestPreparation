@@ -503,6 +503,44 @@ tbody tr:last-child td {
   font-weight: 600;
   color: var(--muted);
 }
+
+.history-detail-view {
+  display: grid;
+  gap: 14px;
+}
+
+.history-detail-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.history-detail-summary {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.history-detail-summary-item {
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  background: var(--card-elevated);
+  padding: 10px 12px;
+  display: grid;
+  gap: 4px;
+}
+
+.history-detail-summary-item span {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.history-detail-summary-item strong {
+  font-size: 14px;
+  color: var(--ink);
+}
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.5px;
