@@ -52,6 +52,11 @@ const isModelUnavailableError = (statusCode, upstreamMessage) => {
   return statusCode === 404 || message.includes('not found') || message.includes('not supported for generatecontent');
 };
 
+const isInvalidApiKeyError = (statusCode, upstreamMessage) => {
+  const message = String(upstreamMessage || '').toLowerCase();
+  return statusCode === 400 && (message.includes('api key not found') || message.includes('api_key_invalid') || message.includes('valid api key'));
+};
+
 const buildContextBlock = ({ questionText, options = [], selectedAnswer }) => {
   const question = normalizeText(questionText, 'Question text not provided.');
   const answer = normalizeText(selectedAnswer, 'Not selected yet');
@@ -129,6 +134,12 @@ module.exports = async function handler(req, res) {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const upstreamMessage = data?.error?.message || 'Gemini API request failed.';
+      if (isInvalidApiKeyError(response.status, upstreamMessage)) {
+        return res.status(401).json({
+          message: 'Invalid Gemini API key. Set a valid key in Vercel environment variables and redeploy.',
+        });
+      }
+
       if (isModelUnavailableError(response.status, upstreamMessage)) {
         lastError = upstreamMessage;
         continue;

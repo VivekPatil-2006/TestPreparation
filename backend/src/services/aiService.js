@@ -55,6 +55,11 @@ const isModelUnavailableError = (statusCode, upstreamMessage) => {
   return statusCode === 404 || message.includes('not found') || message.includes('not supported for generatecontent');
 };
 
+const isInvalidApiKeyError = (statusCode, upstreamMessage) => {
+  const message = String(upstreamMessage || '').toLowerCase();
+  return statusCode === 400 && (message.includes('api key not found') || message.includes('api_key_invalid') || message.includes('valid api key'));
+};
+
 const buildContextBlock = ({ questionText, options = [], selectedAnswer }) => {
   const question = normalizeText(questionText, 'Question text not provided.');
   const answer = normalizeText(selectedAnswer, 'Not selected yet');
@@ -132,6 +137,12 @@ const askQuestionDoubt = async ({ message, questionText, options = [], selectedA
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       const upstreamMessage = data?.error?.message || 'Gemini API request failed.';
+
+      if (isInvalidApiKeyError(response.status, upstreamMessage)) {
+        const error = new Error('Invalid Gemini API key. Replace GEMINI_API_KEY in backend/.env with a valid key from Google AI Studio and restart the backend.');
+        error.statusCode = 401;
+        throw error;
+      }
 
       if (isModelUnavailableError(response.status, upstreamMessage)) {
         lastError = { statusCode: response.status, message: upstreamMessage };
