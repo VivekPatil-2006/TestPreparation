@@ -196,6 +196,55 @@ const askQuestionDoubt = async ({ message, questionText, options = [], selectedA
   return { reply, model };
 };
 
+const listAvailableGrokModels = async () => {
+  if (!env.grokApiKey) {
+    const error = new Error('Grok API key is not configured. Set GROK_API_KEY in backend/.env and restart backend.');
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const response = await fetch(GROK_MODELS_URL, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${env.grokApiKey}`,
+    },
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const upstreamMessage = data?.error?.message || data?.error || 'Unable to fetch Grok models.';
+
+    if (isInvalidApiKeyError(response.status, upstreamMessage)) {
+      const error = new Error('Invalid Grok API key. Replace GROK_API_KEY in backend/.env with a valid key from xAI Console and restart backend.');
+      error.statusCode = 401;
+      throw error;
+    }
+
+    if (isQuotaError(response.status, upstreamMessage)) {
+      const error = new Error('Grok quota exceeded or rate-limited. Check xAI plan and usage, then retry.');
+      error.statusCode = 429;
+      throw error;
+    }
+
+    const error = new Error(String(upstreamMessage));
+    error.statusCode = response.status >= 400 && response.status < 500 ? 400 : 502;
+    throw error;
+  }
+
+  const availableModels = Array.isArray(data?.data)
+    ? data.data
+      .map((item) => normalizeText(item?.id))
+      .filter(Boolean)
+    : [];
+
+  return {
+    configuredModel: normalizeText(env.grokModel, DEFAULT_GROK_MODEL),
+    availableModels,
+    recommendedModel: pickFallbackModel(env.grokModel, availableModels) || DEFAULT_GROK_MODEL,
+  };
+};
+
 module.exports = {
   askQuestionDoubt,
+  listAvailableGrokModels,
 };

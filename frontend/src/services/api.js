@@ -40,6 +40,7 @@ export const api = {
   startTest: (payload) => request('/test/start', { method: 'POST', body: JSON.stringify(payload) }),
   submitTest: (payload) => request('/test/submit', { method: 'POST', body: JSON.stringify(payload) }),
   getTestHistory: () => request('/test/history'),
+  listAiModels: () => request('/ai/models'),
   askAiDoubt: async (payload) => {
     const token = getAuthToken();
     const headers = {
