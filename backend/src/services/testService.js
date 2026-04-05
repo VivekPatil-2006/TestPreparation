@@ -395,7 +395,7 @@ const startTestSession = async ({ adminEmail, tableName, tableNames = [], startR
   };
 };
 
-const completeTestSession = async ({ sessionId, adminEmail, answers = {} }) => {
+const completeTestSession = async ({ sessionId, adminEmail, answers = {}, consideredQuestionCount }) => {
   ensureDbConnection();
   await ensureTestSessionTable();
 
@@ -416,9 +416,14 @@ const completeTestSession = async ({ sessionId, adminEmail, answers = {} }) => {
   }
 
   const storedQuestions = Array.isArray(session.questions) ? session.questions : [];
+  const safeConsideredCount = Math.min(
+    Math.max(Number(consideredQuestionCount) || storedQuestions.length, 1),
+    storedQuestions.length
+  );
+  const scoredQuestions = storedQuestions.slice(0, safeConsideredCount);
   let obtainedMarks = 0;
 
-  const detailedResults = storedQuestions.map((question) => {
+  const detailedResults = scoredQuestions.map((question) => {
     const selectedAnswer = answers[String(question.questionKey)] ?? answers[String(question.rowId)] ?? answers[question.rowId] ?? '';
     const normalizedSelected = String(selectedAnswer).trim().toLowerCase();
     const normalizedCorrect = String(question.correctAnswer || '').trim().toLowerCase();
@@ -455,8 +460,10 @@ const completeTestSession = async ({ sessionId, adminEmail, answers = {} }) => {
       status = 'completed',
       answers = $1::jsonb,
       obtained_marks = $2,
+      total_marks = $3,
+      question_count = $4,
       completed_at = NOW()
-    WHERE id = $3 AND admin_email = $4
+    WHERE id = $5 AND admin_email = $6
     RETURNING *;
   `;
 
@@ -464,6 +471,8 @@ const completeTestSession = async ({ sessionId, adminEmail, answers = {} }) => {
   const { rows: updatedRows } = await pool.query(updateQuery, [
     JSON.stringify(updatedAnswers),
     obtainedMarks,
+    safeConsideredCount,
+    safeConsideredCount,
     sessionId,
     adminEmail,
   ]);

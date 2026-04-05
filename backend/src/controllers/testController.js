@@ -40,12 +40,13 @@ const startTest = async (req, res, next) => {
 
 const submitTest = async (req, res, next) => {
   try {
-    const { sessionId, answers } = req.body || {};
+    const { sessionId, answers, consideredQuestionCount } = req.body || {};
     const adminEmail = req.user?.email;
     const data = await completeTestSession({
       sessionId,
       adminEmail,
       answers,
+      consideredQuestionCount,
     });
     res.status(200).json(data);
   } catch (error) {

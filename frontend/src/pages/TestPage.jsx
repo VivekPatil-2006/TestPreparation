@@ -261,7 +261,7 @@ function TestPage({
     }
   };
 
-  const submitSession = useCallback(async () => {
+  const submitSession = useCallback(async ({ consideredQuestionCount } = {}) => {
     if (!session || submitting) {
       return;
     }
@@ -272,6 +272,7 @@ function TestPage({
       const result = await onSubmitTest({
         sessionId: session.sessionId,
         answers,
+        consideredQuestionCount,
       });
 
       setFinalResult(result);
@@ -293,6 +294,20 @@ function TestPage({
       setSubmitting(false);
     }
   }, [answers, onRefreshHistory, onSubmitTest, session, submitting]);
+
+  const handleEndTest = async () => {
+    if (!session || submitting) {
+      return;
+    }
+
+    const consideredCount = Math.min(Math.max(currentIndex + 1, 1), session.questionCount || QUESTION_COUNT);
+    const proceed = window.confirm(`End test now? Only first ${consideredCount} question(s) will be considered.`);
+    if (!proceed) {
+      return;
+    }
+
+    await submitSession({ consideredQuestionCount: consideredCount });
+  };
 
   useEffect(() => {
     if (session && secondsLeft === 0 && !submitting) {
@@ -1022,6 +1037,10 @@ function TestPage({
         </div>
 
         <div className="test-controls">
+          <button type="button" onClick={handleEndTest} disabled={submitting}>
+            {submitting ? 'Submitting...' : 'End Test'}
+          </button>
+
           <button type="button" onClick={() => setCurrentIndex((previous) => Math.max(previous - 1, 0))} disabled={currentIndex === 0 || submitting}>
             Previous
           </button>
