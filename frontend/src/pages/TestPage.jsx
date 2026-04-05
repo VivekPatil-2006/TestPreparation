@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 const QUESTION_COUNT = 20;
+const GROK_TEST_MODELS = [
+  'grok-3-mini-beta',
+  'grok-3-beta',
+  'grok-2-mini-latest',
+  'grok-2-latest',
+  'grok-beta',
+  'grok-2-vision-1212',
+  'grok-2-1212',
+];
 
 const formatSeconds = (secondsLeft) => {
   const minutes = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
@@ -131,6 +140,7 @@ function TestPage({
   const [finalResult, setFinalResult] = useState(null);
   const [aiConversations, setAiConversations] = useState({});
   const [aiInput, setAiInput] = useState('');
+  const [aiModel, setAiModel] = useState(GROK_TEST_MODELS[0]);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const [questionEditMode, setQuestionEditMode] = useState(false);
@@ -498,6 +508,7 @@ function TestPage({
     try {
       const response = await onAskAiDoubt({
         message: prompt,
+        model: aiModel,
         questionText: activeQuestionText,
         options: activeOptions,
         selectedAnswer,
@@ -1173,6 +1184,22 @@ function TestPage({
             <div className="question-ai-head">
               <h4>Ask AI Doubt Helper</h4>
               <span>{onAskAiDoubt ? 'Grok Connected' : 'AI unavailable'}</span>
+            </div>
+
+            <div className="question-ai-model-row">
+              <label htmlFor="grok-model-select">Model (Desktop test)</label>
+              <select
+                id="grok-model-select"
+                value={aiModel}
+                onChange={(event) => setAiModel(event.target.value)}
+                disabled={aiLoading}
+              >
+                {GROK_TEST_MODELS.map((modelName) => (
+                  <option key={modelName} value={modelName}>
+                    {modelName}
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div className="question-ai-chat" role="log" aria-live="polite">

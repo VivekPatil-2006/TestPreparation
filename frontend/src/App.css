@@ -1840,6 +1840,34 @@ button:disabled {
   padding: 4px 8px;
 }
 
+.question-ai-model-row {
+  display: grid;
+  gap: 6px;
+}
+
+.question-ai-model-row label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.question-ai-model-row select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  color: var(--ink);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.question-ai-model-row select:focus {
+  outline: none;
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgba(15, 110, 253, 0.14);
+}
+
 .question-ai-chat {
   display: grid;
   gap: 8px;
