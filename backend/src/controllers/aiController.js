@@ -2,15 +2,16 @@ const { askQuestionDoubt } = require('../services/aiService');
 
 const askDoubt = async (req, res, next) => {
   try {
-    const { message, model, questionText, options, selectedAnswer, history } = req.body || {};
+    const { message, questionText, options, selectedAnswer, history, provider, model } = req.body || {};
 
     const data = await askQuestionDoubt({
       message,
-      model,
       questionText,
       options,
       selectedAnswer,
       history,
+      provider,
+      model,
     });
 
     res.status(200).json(data);

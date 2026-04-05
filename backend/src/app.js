@@ -13,14 +13,6 @@ const app = express();
 
 const normalizeOrigin = (value) => String(value || '').trim().replace(/\/+$/, '');
 const allowedOrigins = new Set((env.frontendOrigins || []).map((origin) => normalizeOrigin(origin)));
-const isTrustedPreviewOrigin = (origin) => {
-  try {
-    const parsed = new URL(origin);
-    return parsed.protocol === 'https:' && /(^|\.)vercel\.app$/i.test(parsed.hostname);
-  } catch (error) {
-    return false;
-  }
-};
 
 app.use(
 	cors({
@@ -30,7 +22,7 @@ app.use(
       }
 
       const normalizedOrigin = normalizeOrigin(origin);
-      if (allowedOrigins.has(normalizedOrigin) || isTrustedPreviewOrigin(normalizedOrigin)) {
+      if (allowedOrigins.has(normalizedOrigin)) {
         return callback(null, true);
       }
 
