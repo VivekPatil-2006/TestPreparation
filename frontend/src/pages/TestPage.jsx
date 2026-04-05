@@ -109,6 +109,7 @@ function TestPage({
   onStartTest,
   onSubmitTest,
   onAskAiDoubt,
+  onUpdateQuestion,
   onSessionStateChange,
   onRefreshHistory,
   onViewHistory,
@@ -132,6 +133,11 @@ function TestPage({
   const [aiInput, setAiInput] = useState('');
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
+  const [questionEditMode, setQuestionEditMode] = useState(false);
+  const [questionEditDraft, setQuestionEditDraft] = useState(null);
+  const [questionEditSaving, setQuestionEditSaving] = useState(false);
+  const [questionEditError, setQuestionEditError] = useState('');
+  const [questionEditSuccess, setQuestionEditSuccess] = useState('');
   const [tabBlocked, setTabBlocked] = useState(false);
   const [fullscreenLost, setFullscreenLost] = useState(false);
 
@@ -297,6 +303,10 @@ function TestPage({
       setAiConversations({});
       setAiInput('');
       setAiError('');
+      setQuestionEditMode(false);
+      setQuestionEditDraft(null);
+      setQuestionEditError('');
+      setQuestionEditSuccess('');
       setSecondsLeft((response.durationMinutes || effectiveDurationMinutes) * 60);
       setTabBlocked(false);
       setFullscreenLost(false);
@@ -329,6 +339,10 @@ function TestPage({
       setAiConversations({});
       setAiInput('');
       setAiError('');
+      setQuestionEditMode(false);
+      setQuestionEditDraft(null);
+      setQuestionEditError('');
+      setQuestionEditSuccess('');
       setSecondsLeft(0);
       setTabBlocked(false);
       setFullscreenLost(false);
@@ -429,6 +443,10 @@ function TestPage({
     setAiConversations({});
     setAiInput('');
     setAiError('');
+    setQuestionEditMode(false);
+    setQuestionEditDraft(null);
+    setQuestionEditError('');
+    setQuestionEditSuccess('');
     setTabBlocked(false);
     setFullscreenLost(false);
   };
@@ -436,9 +454,26 @@ function TestPage({
   const activeQuestion = session?.questions?.[currentIndex] || null;
   const activeQuestionText = getQuestionText(activeQuestion);
   const activeOptions = getQuestionOptions(activeQuestion);
+  const activeOptionsSignature = activeOptions.join('\u0000');
   const activeQuestionKey = getQuestionKey(activeQuestion, currentIndex);
   const selectedAnswer = answers[activeQuestionKey] || '';
   const activeAiMessages = aiConversations[activeQuestionKey] || [];
+
+  useEffect(() => {
+    if (!questionEditMode || !activeQuestion) {
+      setQuestionEditDraft(null);
+      setQuestionEditError('');
+      setQuestionEditSuccess('');
+      return;
+    }
+
+    setQuestionEditDraft({
+      questionText: activeQuestionText,
+      options: activeOptions.length === 4 ? [...activeOptions] : ['', '', '', ''],
+    });
+    setQuestionEditError('');
+    setQuestionEditSuccess('');
+  }, [activeQuestionKey, activeQuestionText, activeOptionsSignature, activeQuestion, questionEditMode]);
 
   const handleSendAiDoubt = async () => {
     if (!onAskAiDoubt || !activeQuestion) {
@@ -493,6 +528,99 @@ function TestPage({
       delete next[activeQuestionKey];
       return next;
     });
+  };
+
+  const handleToggleQuestionEditMode = () => {
+    setQuestionEditMode((previous) => !previous);
+    setQuestionEditError('');
+    setQuestionEditSuccess('');
+  };
+
+  const handleQuestionDraftChange = (field, value) => {
+    setQuestionEditDraft((previous) => {
+      const base = previous || { questionText: activeQuestionText, options: ['', '', '', ''] };
+      return {
+        ...base,
+        [field]: value,
+      };
+    });
+  };
+
+  const handleQuestionOptionChange = (index, value) => {
+    setQuestionEditDraft((previous) => {
+      const base = previous || { questionText: activeQuestionText, options: ['', '', '', ''] };
+      const nextOptions = [...(base.options || ['', '', '', ''])];
+      nextOptions[index] = value;
+      return {
+        ...base,
+        options: nextOptions,
+      };
+    });
+  };
+
+  const handleSaveQuestionEdits = async () => {
+    if (!onUpdateQuestion || !activeQuestion || !questionEditDraft || questionEditSaving) {
+      return;
+    }
+
+    const nextQuestionText = String(questionEditDraft.questionText || '').trim();
+    const nextOptions = Array.isArray(questionEditDraft.options)
+      ? questionEditDraft.options.map((option) => String(option || '').trim())
+      : [];
+
+    if (!nextQuestionText) {
+      setQuestionEditError('Question text is required.');
+      return;
+    }
+
+    if (nextOptions.length !== 4 || nextOptions.some((option) => !option)) {
+      setQuestionEditError('Please provide all four options before saving.');
+      return;
+    }
+
+    setQuestionEditSaving(true);
+    setQuestionEditError('');
+
+    try {
+      await onUpdateQuestion({
+        tableName: activeQuestion.sourceTable,
+        rowId: activeQuestion.rowId,
+        questionText: nextQuestionText,
+        options: nextOptions,
+      });
+
+      setSession((previous) => {
+        if (!previous) {
+          return previous;
+        }
+
+        const nextQuestions = Array.isArray(previous.questions)
+          ? previous.questions.map((question, index) => {
+              if (index !== currentIndex) {
+                return question;
+              }
+
+              return {
+                ...question,
+                questionText: nextQuestionText,
+                options: nextOptions,
+              };
+            })
+          : previous.questions;
+
+        return {
+          ...previous,
+          questions: nextQuestions,
+        };
+      });
+
+      setQuestionEditSuccess('Question updated successfully.');
+      setQuestionEditMode(false);
+    } catch (err) {
+      setQuestionEditError(err.message || 'Unable to save question changes.');
+    } finally {
+      setQuestionEditSaving(false);
+    }
   };
 
   useEffect(() => {
@@ -956,16 +1084,76 @@ function TestPage({
               </>
             );
           })()}
-          <p className="test-question-row">Database row: {activeQuestion?.rowNumber}</p>
+          <div className="question-box-head">
+            <p className="test-question-row">Database row: {activeQuestion?.rowNumber}</p>
+            <button type="button" className={questionEditMode ? 'question-edit-toggle active' : 'question-edit-toggle'} onClick={handleToggleQuestionEditMode}>
+              {questionEditMode ? 'Exit Edit Mode' : 'Admin Edit Question'}
+            </button>
+          </div>
+
+          {questionEditMode && questionEditDraft ? (
+            <div className="question-edit-panel">
+              <label className="question-edit-label" htmlFor="question-edit-text">Question Text</label>
+              <textarea
+                id="question-edit-text"
+                value={questionEditDraft.questionText}
+                onChange={(event) => handleQuestionDraftChange('questionText', event.target.value)}
+                rows={4}
+              />
+
+              <div className="question-edit-options-grid">
+                {questionEditDraft.options.map((option, index) => (
+                  <label key={`${activeQuestionKey}-edit-${index}`} className="question-edit-option">
+                    <span>Option {optionLabel(index)}</span>
+                    <input
+                      type="text"
+                      value={option}
+                      onChange={(event) => handleQuestionOptionChange(index, event.target.value)}
+                    />
+                  </label>
+                ))}
+              </div>
+
+              {questionEditError ? <div className="error-banner">{questionEditError}</div> : null}
+              {questionEditSuccess ? <div className="success-banner">{questionEditSuccess}</div> : null}
+
+              <div className="question-edit-actions">
+                <button type="button" onClick={handleToggleQuestionEditMode} disabled={questionEditSaving} className="question-edit-cancel">
+                  Cancel
+                </button>
+                <button type="button" onClick={handleSaveQuestionEdits} disabled={questionEditSaving} className="question-edit-save">
+                  {questionEditSaving ? 'Saving...' : 'Save Question'}
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           {activeOptions.length === 4 ? (
             <div className="option-list">
-              {activeOptions.map((option) => (
-                <label key={option} className="option-item">
+              {activeOptions.map((option) => {
+                const isSelected = normalizeSelectedAnswer(selectedAnswer) === normalizeSelectedAnswer(option);
+
+                return (
+                <label
+                  key={option}
+                  className="option-item"
+                  onClick={(event) => {
+                    if (!isSelected) {
+                      return;
+                    }
+
+                    event.preventDefault();
+                    setAnswers((previous) => {
+                      const next = { ...previous };
+                      delete next[activeQuestionKey];
+                      return next;
+                    });
+                  }}
+                >
                   <input
                     type="radio"
                     name={`q-${activeQuestionKey}`}
-                    checked={normalizeSelectedAnswer(selectedAnswer) === normalizeSelectedAnswer(option)}
+                    checked={isSelected}
                     onChange={() =>
                       setAnswers((previous) => ({
                         ...previous,
@@ -975,7 +1163,8 @@ function TestPage({
                   />
                   {option}
                 </label>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="error-banner">This question does not have 4 options and should not appear.</div>

@@ -1,6 +1,7 @@
 const env = require('../config/env');
 
-const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_API_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/models';
+const DEFAULT_GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash-latest', 'gemini-1.5-flash'];
 const MAX_HISTORY_MESSAGES = 12;
 const MAX_MESSAGE_LENGTH = 1500;
 
@@ -30,6 +31,28 @@ const sanitizeHistory = (history = []) => {
     }))
     .filter((item) => item.content)
     .slice(-MAX_HISTORY_MESSAGES);
+};
+
+const uniqueNonEmpty = (values = []) => {
+  const seen = new Set();
+  const result = [];
+
+  values.forEach((value) => {
+    const normalized = normalizeText(value);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+
+    seen.add(normalized);
+    result.push(normalized);
+  });
+
+  return result;
+};
+
+const isModelUnavailableError = (statusCode, upstreamMessage) => {
+  const message = String(upstreamMessage || '').toLowerCase();
+  return statusCode === 404 || message.includes('not found') || message.includes('not supported for generatecontent');
 };
 
 const buildContextBlock = ({ questionText, options = [], selectedAnswer }) => {
@@ -94,37 +117,52 @@ const askQuestionDoubt = async ({ message, questionText, options = [], selectedA
     },
   };
 
-  const response = await fetch(`${GEMINI_API_URL}?key=${encodeURIComponent(env.geminiApiKey)}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(requestBody),
-  });
+  const modelsToTry = uniqueNonEmpty([env.geminiModel, ...DEFAULT_GEMINI_MODELS]);
+  let lastError = null;
 
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const upstreamMessage = data?.error?.message || 'Gemini API request failed.';
-    const error = new Error(upstreamMessage);
-    error.statusCode = response.status >= 400 && response.status < 500 ? 400 : 502;
-    throw error;
+  for (const model of modelsToTry) {
+    const response = await fetch(`${GEMINI_API_BASE_URL}/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(env.geminiApiKey)}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const upstreamMessage = data?.error?.message || 'Gemini API request failed.';
+
+      if (isModelUnavailableError(response.status, upstreamMessage)) {
+        lastError = { statusCode: response.status, message: upstreamMessage };
+        continue;
+      }
+
+      const error = new Error(upstreamMessage);
+      error.statusCode = response.status >= 400 && response.status < 500 ? 400 : 502;
+      throw error;
+    }
+
+    const reply = Array.isArray(data?.candidates)
+      ? data.candidates
+        .flatMap((candidate) => candidate?.content?.parts || [])
+        .map((part) => normalizeText(part?.text))
+        .filter(Boolean)
+        .join('\n')
+      : '';
+
+    if (!reply) {
+      const error = new Error('Gemini did not return a response for this question. Try asking again.');
+      error.statusCode = 502;
+      throw error;
+    }
+
+    return { reply, model };
   }
 
-  const reply = Array.isArray(data?.candidates)
-    ? data.candidates
-      .flatMap((candidate) => candidate?.content?.parts || [])
-      .map((part) => normalizeText(part?.text))
-      .filter(Boolean)
-      .join('\n')
-    : '';
-
-  if (!reply) {
-    const error = new Error('Gemini did not return a response for this question. Try asking again.');
-    error.statusCode = 502;
-    throw error;
-  }
-
-  return { reply };
+  const error = new Error(lastError?.message || 'No supported Gemini model is available for this API key. Set GEMINI_MODEL in backend/.env to a supported model and restart backend.');
+  error.statusCode = 502;
+  throw error;
 };
 
 module.exports = {

@@ -241,6 +241,8 @@ function App() {
 
   const handleAskAiDoubt = async (payload) => api.askAiDoubt(payload);
 
+  const handleUpdateQuestion = async (payload) => api.updateTestQuestion(payload);
+
   const title = useMemo(() => activeTab, [activeTab]);
 
   if (!isLoggedIn) {
@@ -342,6 +344,7 @@ function App() {
               onStartTest={handleStartTest}
               onSubmitTest={handleSubmitTest}
               onAskAiDoubt={handleAskAiDoubt}
+              onUpdateQuestion={handleUpdateQuestion}
               onSessionStateChange={setTestLocked}
               onRefreshHistory={refreshProtectedData}
               onViewHistory={() => setViewingHistory(true)}

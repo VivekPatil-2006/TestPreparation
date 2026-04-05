@@ -4,6 +4,7 @@ const {
   startTestSession,
   completeTestSession,
   getTestHistory,
+  updateQuestionRow,
 } = require('../services/testService');
 
 const listTables = async (req, res, next) => {
@@ -63,9 +64,25 @@ const history = async (req, res, next) => {
   }
 };
 
+const updateQuestion = async (req, res, next) => {
+  try {
+    const { tableName, rowId, questionText, options } = req.body || {};
+    const data = await updateQuestionRow({
+      tableName,
+      rowId,
+      questionText,
+      options,
+    });
+    res.status(200).json(data);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   listTables,
   startTest,
   submitTest,
   history,
+  updateQuestion,
 };

@@ -97,6 +97,107 @@ const normalizeQuestionRow = (row, rowNumber, sourceTable) => {
   };
 };
 
+const pickQuestionTextColumn = (columns) => {
+  const columnSet = new Set(columns.map((name) => String(name).toLowerCase()));
+  if (columnSet.has('question')) return 'question';
+  if (columnSet.has('prompt')) return 'prompt';
+  if (columnSet.has('title')) return 'title';
+  return null;
+};
+
+const pickOptionColumns = (columns) => {
+  const optionSets = [
+    ['option1', 'option2', 'option3', 'option4'],
+    ['option_a', 'option_b', 'option_c', 'option_d'],
+  ];
+
+  const columnSet = new Set(columns.map((name) => String(name).toLowerCase()));
+  return optionSets.find((candidate) => candidate.every((column) => columnSet.has(column))) || [];
+};
+
+const updateQuestionRow = async ({ tableName, rowId, questionText, options = [] }) => {
+  ensureDbConnection();
+
+  const safeTableName = String(tableName || '').trim();
+  const safeRowId = Number(rowId);
+
+  if (!safeTableName) {
+    const error = new Error('Table name is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!Number.isFinite(safeRowId) || safeRowId < 1) {
+    const error = new Error('A valid row id is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const columns = await getTableColumnNames(safeTableName);
+  const textColumn = pickQuestionTextColumn(columns);
+  const optionColumns = pickOptionColumns(columns);
+
+  if (!textColumn) {
+    const error = new Error('Unable to find a question text column in the selected table.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (optionColumns.length !== 4) {
+    const error = new Error('Unable to find four option columns in the selected table.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const nextOptions = Array.isArray(options) ? options.map((option) => String(option == null ? '' : option).trim()) : [];
+  if (nextOptions.length !== 4 || nextOptions.some((option) => !option)) {
+    const error = new Error('Four non-empty options are required.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const nextQuestionText = String(questionText == null ? '' : questionText).trim();
+  if (!nextQuestionText) {
+    const error = new Error('Question text is required.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const assignments = [
+    `${quoteIdent(textColumn)} = $1`,
+    ...optionColumns.map((column, index) => `${quoteIdent(column)} = $${index + 2}`),
+  ].join(', ');
+
+  const query = `
+    UPDATE ${quoteIdent(safeTableName)}
+    SET ${assignments}
+    WHERE id = $6
+    RETURNING id;
+  `;
+
+  const { rows } = await pool.query(query, [
+    nextQuestionText,
+    nextOptions[0],
+    nextOptions[1],
+    nextOptions[2],
+    nextOptions[3],
+    safeRowId,
+  ]);
+
+  if (!rows.length) {
+    const error = new Error('Question row not found.');
+    error.statusCode = 404;
+    throw error;
+  }
+
+  return {
+    tableName: safeTableName,
+    rowId: safeRowId,
+    questionText: nextQuestionText,
+    options: nextOptions,
+  };
+};
+
 const fetchValidQuestions = async (tableName) => {
   const query = `
     SELECT *
@@ -433,4 +534,5 @@ module.exports = {
   startTestSession,
   completeTestSession,
   getTestHistory,
+  updateQuestionRow,
 };

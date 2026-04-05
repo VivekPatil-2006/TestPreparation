@@ -23,6 +23,7 @@ const env = {
   supabaseDbUrl: process.env.SUPABASE_DB_URL,
   jwtSecret: process.env.JWT_SECRET,
   geminiApiKey: process.env.GEMINI_API_KEY,
+  geminiModel: process.env.GEMINI_MODEL,
   adminEmail: process.env.ADMIN_EMAIL || 'admin@gmail.com',
   adminPasswordHash: process.env.ADMIN_PASSWORD_HASH,
   testDurationMinutes: Number(process.env.TEST_DURATION_MINUTES || 30),
