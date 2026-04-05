@@ -1172,7 +1172,7 @@ function TestPage({
           <div className="question-ai-panel">
             <div className="question-ai-head">
               <h4>Ask AI Doubt Helper</h4>
-              <span>{onAskAiDoubt ? 'Gemini Connected' : 'AI unavailable'}</span>
+              <span>{onAskAiDoubt ? 'Grok Connected' : 'AI unavailable'}</span>
             </div>
 
             <div className="question-ai-chat" role="log" aria-live="polite">
