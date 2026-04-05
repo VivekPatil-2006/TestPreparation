@@ -453,8 +453,7 @@ function TestPage({
 
   const activeQuestion = session?.questions?.[currentIndex] || null;
   const activeQuestionText = getQuestionText(activeQuestion);
-  const activeOptions = getQuestionOptions(activeQuestion);
-  const activeOptionsSignature = activeOptions.join('\u0000');
+  const activeOptions = useMemo(() => getQuestionOptions(activeQuestion), [activeQuestion]);
   const activeQuestionKey = getQuestionKey(activeQuestion, currentIndex);
   const selectedAnswer = answers[activeQuestionKey] || '';
   const activeAiMessages = aiConversations[activeQuestionKey] || [];
@@ -473,7 +472,7 @@ function TestPage({
     });
     setQuestionEditError('');
     setQuestionEditSuccess('');
-  }, [activeQuestionKey, activeQuestionText, activeOptionsSignature, activeQuestion, questionEditMode]);
+  }, [activeQuestionKey, activeQuestionText, activeOptions, activeQuestion, questionEditMode]);
 
   const handleSendAiDoubt = async () => {
     if (!onAskAiDoubt || !activeQuestion) {
