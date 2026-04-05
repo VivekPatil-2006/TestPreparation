@@ -916,20 +916,6 @@ function TestPage({
         </div>
 
         <div className="question-box">
-          {(() => {
-            const { hasProgram, beforeProgram, program, afterProgram } = detectAndFormatProgram(activeQuestionText);
-            return (
-              <>
-                {beforeProgram && <p>{beforeProgram}</p>}
-                {hasProgram && program && (
-                  <pre className="program-block">
-                    <code>{program}</code>
-                  </pre>
-                )}
-                {afterProgram && <p>{afterProgram}</p>}
-              </>
-            );
-          })()}
           <div className="question-box-head">
             <p className="test-question-row">Database row: {activeQuestion?.rowNumber}</p>
             <button type="button" className={questionEditMode ? 'question-edit-toggle active' : 'question-edit-toggle'} onClick={handleToggleQuestionEditMode}>
@@ -938,15 +924,38 @@ function TestPage({
           </div>
 
           {questionEditMode && questionEditDraft ? (
-            <div className="question-edit-panel">
+            <>
               <label className="question-edit-label" htmlFor="question-edit-text">Question Text</label>
               <textarea
                 id="question-edit-text"
+                className="question-edit-inline-text"
                 value={questionEditDraft.questionText}
                 onChange={(event) => handleQuestionDraftChange('questionText', event.target.value)}
-                rows={4}
+                rows={6}
               />
+            </>
+          ) : (
+            (() => {
+              const { hasProgram, beforeProgram, program, afterProgram } = detectAndFormatProgram(activeQuestionText);
+              return (
+                <>
+                  {beforeProgram && <p>{beforeProgram}</p>}
+                  {hasProgram && program && (
+                    <pre className="program-block">
+                      <code>{program}</code>
+                    </pre>
+                  )}
+                  {afterProgram && <p>{afterProgram}</p>}
+                </>
+              );
+            })()
+          )}
 
+          {questionEditError ? <div className="error-banner">{questionEditError}</div> : null}
+          {questionEditSuccess ? <div className="success-banner">{questionEditSuccess}</div> : null}
+
+          {questionEditMode && questionEditDraft ? (
+            <>
               <div className="question-edit-options-grid">
                 {questionEditDraft.options.map((option, index) => (
                   <label key={`${activeQuestionKey}-edit-${index}`} className="question-edit-option">
@@ -960,9 +969,6 @@ function TestPage({
                 ))}
               </div>
 
-              {questionEditError ? <div className="error-banner">{questionEditError}</div> : null}
-              {questionEditSuccess ? <div className="success-banner">{questionEditSuccess}</div> : null}
-
               <div className="question-edit-actions">
                 <button type="button" onClick={handleToggleQuestionEditMode} disabled={questionEditSaving} className="question-edit-cancel">
                   Cancel
@@ -971,10 +977,8 @@ function TestPage({
                   {questionEditSaving ? 'Saving...' : 'Save Question'}
                 </button>
               </div>
-            </div>
-          ) : null}
-
-          {activeOptions.length === 4 ? (
+            </>
+          ) : activeOptions.length === 4 ? (
             <div className="option-list">
               {activeOptions.map((option) => {
                 const isSelected = normalizeSelectedAnswer(selectedAnswer) === normalizeSelectedAnswer(option);

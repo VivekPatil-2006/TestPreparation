@@ -2623,6 +2623,7 @@ button:disabled {
 }
 
 .question-edit-panel textarea,
+.question-edit-inline-text,
 .question-edit-option input {
   width: 100%;
   border: 1px solid var(--border);
@@ -2634,10 +2635,15 @@ button:disabled {
 }
 
 .question-edit-panel textarea:focus,
+.question-edit-inline-text:focus,
 .question-edit-option input:focus {
   outline: none;
   border-color: var(--brand);
   box-shadow: 0 0 0 3px rgba(15, 110, 253, 0.12);
+}
+
+.question-edit-inline-text {
+  margin-bottom: 12px;
 }
 
 .question-edit-options-grid {
