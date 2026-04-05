@@ -108,9 +108,7 @@ function TestPage({
   historyError = '',
   onStartTest,
   onSubmitTest,
-  onAskAiDoubt,
   onUpdateQuestion,
-  onSessionStateChange,
   onRefreshHistory,
   onViewHistory,
 }) {
@@ -129,17 +127,11 @@ function TestPage({
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [finalResult, setFinalResult] = useState(null);
-  const [aiConversations, setAiConversations] = useState({});
-  const [aiInput, setAiInput] = useState('');
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState('');
   const [questionEditMode, setQuestionEditMode] = useState(false);
   const [questionEditDraft, setQuestionEditDraft] = useState(null);
   const [questionEditSaving, setQuestionEditSaving] = useState(false);
   const [questionEditError, setQuestionEditError] = useState('');
   const [questionEditSuccess, setQuestionEditSuccess] = useState('');
-  const [tabBlocked, setTabBlocked] = useState(false);
-  const [fullscreenLost, setFullscreenLost] = useState(false);
 
   const visibleTables = useMemo(
     () => (Array.isArray(tables) ? tables.filter((table) => String(table).toLowerCase() !== 'test_sessions') : []),
@@ -199,49 +191,6 @@ function TestPage({
     return () => clearInterval(timerId);
   }, [session, secondsLeft]);
 
-  useEffect(() => {
-    if (!session) {
-      setTabBlocked(false);
-      setFullscreenLost(false);
-      onSessionStateChange?.(false);
-      return undefined;
-    }
-
-    const handleVisibilityChange = () => {
-      setTabBlocked(document.hidden);
-    };
-
-    const handleFullscreenChange = () => {
-      setFullscreenLost(!document.fullscreenElement);
-    };
-
-    const handleBeforeUnload = (event) => {
-      event.preventDefault();
-      event.returnValue = '';
-      return '';
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    handleVisibilityChange();
-    handleFullscreenChange();
-    onSessionStateChange?.(true);
-
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-    };
-  }, [session, onSessionStateChange]);
-
-  const requestFullscreen = async () => {
-    if (document.documentElement.requestFullscreen) {
-      await document.documentElement.requestFullscreen().catch(() => undefined);
-    }
-  };
-
   const validateSetup = () => {
     if (!selectedTables.length) {
       return 'Select at least one table to start test.';
@@ -300,18 +249,11 @@ function TestPage({
       setCurrentIndex(0);
       setAnswers({});
       setFinalResult(null);
-      setAiConversations({});
-      setAiInput('');
-      setAiError('');
       setQuestionEditMode(false);
       setQuestionEditDraft(null);
       setQuestionEditError('');
       setQuestionEditSuccess('');
       setSecondsLeft((response.durationMinutes || effectiveDurationMinutes) * 60);
-      setTabBlocked(false);
-      setFullscreenLost(false);
-
-      await requestFullscreen();
     } catch (err) {
       setError(err.message || 'Unable to start test');
     } finally {
@@ -336,21 +278,11 @@ function TestPage({
       setSession(null);
       setCurrentIndex(0);
       setAnswers({});
-      setAiConversations({});
-      setAiInput('');
-      setAiError('');
       setQuestionEditMode(false);
       setQuestionEditDraft(null);
       setQuestionEditError('');
       setQuestionEditSuccess('');
       setSecondsLeft(0);
-      setTabBlocked(false);
-      setFullscreenLost(false);
-      onSessionStateChange?.(false);
-
-      if (document.fullscreenElement && document.exitFullscreen) {
-        await document.exitFullscreen().catch(() => undefined);
-      }
 
       if (onRefreshHistory) {
         await onRefreshHistory();
@@ -360,7 +292,7 @@ function TestPage({
     } finally {
       setSubmitting(false);
     }
-  }, [answers, onRefreshHistory, onSessionStateChange, onSubmitTest, session, submitting]);
+  }, [answers, onRefreshHistory, onSubmitTest, session, submitting]);
 
   useEffect(() => {
     if (session && secondsLeft === 0 && !submitting) {
@@ -440,15 +372,10 @@ function TestPage({
   const handleReturnToSetup = () => {
     setFinalResult(null);
     setError('');
-    setAiConversations({});
-    setAiInput('');
-    setAiError('');
     setQuestionEditMode(false);
     setQuestionEditDraft(null);
     setQuestionEditError('');
     setQuestionEditSuccess('');
-    setTabBlocked(false);
-    setFullscreenLost(false);
   };
 
   const activeQuestion = session?.questions?.[currentIndex] || null;
@@ -456,7 +383,6 @@ function TestPage({
   const activeOptions = useMemo(() => getQuestionOptions(activeQuestion), [activeQuestion]);
   const activeQuestionKey = getQuestionKey(activeQuestion, currentIndex);
   const selectedAnswer = answers[activeQuestionKey] || '';
-  const activeAiMessages = aiConversations[activeQuestionKey] || [];
 
   useEffect(() => {
     if (!questionEditMode || !activeQuestion) {
@@ -473,61 +399,6 @@ function TestPage({
     setQuestionEditError('');
     setQuestionEditSuccess('');
   }, [activeQuestionKey, activeQuestionText, activeOptions, activeQuestion, questionEditMode]);
-
-  const handleSendAiDoubt = async () => {
-    if (!onAskAiDoubt || !activeQuestion) {
-      return;
-    }
-
-    const prompt = String(aiInput || '').trim();
-    if (!prompt || aiLoading) {
-      return;
-    }
-
-    const priorMessages = aiConversations[activeQuestionKey] || [];
-    const nextUserMessage = { role: 'user', content: prompt };
-
-    setAiConversations((previous) => ({
-      ...previous,
-      [activeQuestionKey]: [...priorMessages, nextUserMessage],
-    }));
-    setAiInput('');
-    setAiError('');
-    setAiLoading(true);
-
-    try {
-      const response = await onAskAiDoubt({
-        message: prompt,
-        questionText: activeQuestionText,
-        options: activeOptions,
-        selectedAnswer,
-        history: priorMessages,
-      });
-
-      const assistantReply = String(response?.reply || '').trim() || 'No response received from AI assistant.';
-      setAiConversations((previous) => ({
-        ...previous,
-        [activeQuestionKey]: [
-          ...(previous[activeQuestionKey] || []),
-          { role: 'assistant', content: assistantReply },
-        ],
-      }));
-    } catch (err) {
-      setAiError(err.message || 'Unable to reach AI assistant for this question.');
-    } finally {
-      setAiLoading(false);
-    }
-  };
-
-  const handleClearAiChat = () => {
-    setAiError('');
-    setAiInput('');
-    setAiConversations((previous) => {
-      const next = { ...previous };
-      delete next[activeQuestionKey];
-      return next;
-    });
-  };
 
   const handleToggleQuestionEditMode = () => {
     setQuestionEditMode((previous) => !previous);
@@ -621,11 +492,6 @@ function TestPage({
       setQuestionEditSaving(false);
     }
   };
-
-  useEffect(() => {
-    setAiInput('');
-    setAiError('');
-  }, [activeQuestionKey]);
 
   if (finalResult) {
     return (
@@ -766,7 +632,7 @@ function TestPage({
       <section className="test-setup-page">
         <div className="test-setup-title-block">
           <h1>Start Test</h1>
-          <p>Choose one or more tables, select the first row, and launch a locked 20-question session.</p>
+          <p>Choose one or more tables, select the first row, and launch a 20-question session.</p>
         </div>
 
         <div className="test-setup-layout">
@@ -787,7 +653,7 @@ function TestPage({
                 </div>
                 <div className="test-overview-card">
                   <span>Mode</span>
-                  <strong>Locked</strong>
+                  <strong>Standard</strong>
                 </div>
               </div>
 
@@ -899,7 +765,7 @@ function TestPage({
                 <div className="test-setup-panel">
                   <div className="test-setup-panel-head">
                     <h3>Session Configuration</h3>
-                    <p>Tune timer and defaults before launching the locked test.</p>
+                    <p>Tune timer and defaults before launching the test.</p>
                   </div>
 
                   <label htmlFor="start-row" className="test-setup-label">Default Start Row (for new selections)</label>
@@ -950,7 +816,7 @@ function TestPage({
                     </p>
                     <p className="test-detail-row">
                       <span className="test-detail-label">Mode:</span>
-                      <span className="test-detail-value">Full-screen lock enabled</span>
+                      <span className="test-detail-value">Timed session</span>
                     </p>
                   </div>
 
@@ -1002,9 +868,9 @@ function TestPage({
                 </div>
 
                 <div className="confirmation-message">
-                  <h3>Start locked fullscreen test?</h3>
+                  <h3>Start test?</h3>
                   <p>
-                    The test will open in fullscreen, lock navigation, and save the session history after submission.
+                    The session will begin with the selected files and timer settings. Submission history will be saved.
                   </p>
                 </div>
 
@@ -1014,7 +880,6 @@ function TestPage({
                     <strong>Timer:</strong>{' '}
                     {timerMode === 'custom' ? `${customMinutes} minute total` : '1 minute per question'}
                   </p>
-                  <p className="detail-item"><strong>Lock:</strong> Tab navigation disabled during session</p>
                 </div>
               </div>
 
@@ -1031,26 +896,8 @@ function TestPage({
     );
   }
 
-  const lockMessage = tabBlocked
-    ? 'You switched tabs. Return here to continue.'
-    : fullscreenLost
-      ? 'Fullscreen mode is required. Return to fullscreen to continue.'
-      : '';
-
   return (
     <section className="test-room-shell">
-      {lockMessage ? (
-        <div className="test-lock-overlay">
-          <div className="test-lock-card">
-            <h2>Test Locked</h2>
-            <p>{lockMessage}</p>
-            <button type="button" className="test-setup-button" onClick={requestFullscreen}>
-              Return to Test
-            </button>
-          </div>
-        </div>
-      ) : null}
-
       <div className="test-room">
         <div className="test-header">
           <div>
@@ -1168,50 +1015,6 @@ function TestPage({
           ) : (
             <div className="error-banner">This question does not have 4 options and should not appear.</div>
           )}
-
-          <div className="question-ai-panel">
-            <div className="question-ai-head">
-              <h4>Ask AI Doubt Helper</h4>
-              <span>{onAskAiDoubt ? 'AI Connected' : 'AI unavailable'}</span>
-            </div>
-
-            <div className="question-ai-chat" role="log" aria-live="polite">
-              {activeAiMessages.length ? (
-                activeAiMessages.map((message, index) => (
-                  <div
-                    key={`${activeQuestionKey}-ai-${index}`}
-                    className={message.role === 'assistant' ? 'question-ai-bubble ai-assistant' : 'question-ai-bubble ai-user'}
-                  >
-                    <strong>{message.role === 'assistant' ? 'AI' : 'You'}</strong>
-                    <p>{message.content}</p>
-                  </div>
-                ))
-              ) : (
-                <p className="question-ai-empty">Ask a doubt for this question. AI will use current question and options as context.</p>
-              )}
-            </div>
-
-            {aiError ? <div className="error-banner">{aiError}</div> : null}
-
-            <div className="question-ai-input-wrap">
-              <textarea
-                value={aiInput}
-                onChange={(event) => setAiInput(event.target.value)}
-                placeholder="Example: Why is option B correct in this question?"
-                rows={3}
-                disabled={!onAskAiDoubt || aiLoading}
-              />
-
-              <div className="question-ai-actions">
-                <button type="button" onClick={handleClearAiChat} disabled={aiLoading || !activeAiMessages.length}>
-                  Clear Chat
-                </button>
-                <button type="button" onClick={handleSendAiDoubt} disabled={!onAskAiDoubt || aiLoading || !String(aiInput).trim()}>
-                  {aiLoading ? 'Thinking...' : 'Ask AI'}
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
 
         <div className="test-controls">

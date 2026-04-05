@@ -55,7 +55,6 @@ function App() {
     const validTabKeys = NAV_ITEMS.map((item) => item.key);
     return validTabKeys.includes(savedTab) ? savedTab : 'Dashboard';
   });
-  const [testLocked, setTestLocked] = useState(false);
   const [viewingHistory, setViewingHistory] = useState(false);
   const [theme, setTheme] = useState(() => {
     const savedTheme = localStorage.getItem(THEME_STORAGE_KEY);
@@ -179,25 +178,16 @@ function App() {
   };
 
   const handleLogout = async () => {
-    if (document.fullscreenElement && document.exitFullscreen) {
-      await document.exitFullscreen().catch(() => undefined);
-    }
-
     localStorage.removeItem('authToken');
     localStorage.removeItem(ACTIVE_TAB_STORAGE_KEY);
     setAuthToken('');
     setAnalytics(null);
     setTables([]);
     setHistory([]);
-    setTestLocked(false);
     setActiveTab('Dashboard');
   };
 
   const handleNavigate = (tabKey) => {
-    if (testLocked && tabKey !== 'Test') {
-      return;
-    }
-
     setActiveTab(tabKey);
   };
 
@@ -239,8 +229,6 @@ function App() {
     return result;
   };
 
-  const handleAskAiDoubt = async (payload) => api.askAiDoubt(payload);
-
   const handleUpdateQuestion = async (payload) => api.updateTestQuestion(payload);
 
   const title = useMemo(() => activeTab, [activeTab]);
@@ -266,7 +254,6 @@ function App() {
               type="button"
               className={activeTab === item.key ? 'portal-nav-btn active' : 'portal-nav-btn'}
               onClick={() => handleNavigate(item.key)}
-              disabled={testLocked && item.key !== 'Test'}
             >
               {item.icon}
               <span>{item.label}</span>
@@ -278,7 +265,6 @@ function App() {
           type="button"
           className="theme-toggle-btn"
           onClick={handleToggleTheme}
-          disabled={testLocked}
           title={theme === 'dark' ? 'Switch to light theme' : 'Switch to professional dark theme'}
         >
           {theme === 'dark' ? (
@@ -297,13 +283,13 @@ function App() {
           <span>{theme === 'dark' ? 'Light' : 'Pro Dark'}</span>
         </button>
 
-        <button type="button" className="logout-link" onClick={handleLogout} disabled={testLocked}>
+        <button type="button" className="logout-link" onClick={handleLogout}>
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M10 17L15 12L10 7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             <path d="M15 12H3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
             <path d="M21 4V20" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
           </svg>
-          <span>{testLocked ? 'Locked' : 'Logout'}</span>
+          <span>Logout</span>
         </button>
       </header>
 
@@ -343,9 +329,7 @@ function App() {
               historyError={historyError}
               onStartTest={handleStartTest}
               onSubmitTest={handleSubmitTest}
-              onAskAiDoubt={handleAskAiDoubt}
               onUpdateQuestion={handleUpdateQuestion}
-              onSessionStateChange={setTestLocked}
               onRefreshHistory={refreshProtectedData}
               onViewHistory={() => setViewingHistory(true)}
             />
