@@ -72,6 +72,152 @@ const buildPrompt = ({ message, questionText, options = [], selectedAnswer, hist
   ].filter(Boolean).join('\n\n');
 };
 
+const extractFirstJsonObject = (text) => {
+  const source = String(text || '').trim();
+  if (!source) {
+    return null;
+  }
+
+  const fencedMatch = source.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  const candidate = fencedMatch ? fencedMatch[1].trim() : source;
+
+  const firstBrace = candidate.indexOf('{');
+  const lastBrace = candidate.lastIndexOf('}');
+  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
+    return null;
+  }
+
+  const jsonSlice = candidate.slice(firstBrace, lastBrace + 1);
+  try {
+    return JSON.parse(jsonSlice);
+  } catch (error) {
+    return null;
+  }
+};
+
+const normalizeOptionList = (values = [], maxItems = 4) => {
+  const unique = [];
+  const seen = new Set();
+
+  for (const rawValue of values) {
+    const value = normalizeText(rawValue);
+    if (!value) {
+      continue;
+    }
+
+    const key = value.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    unique.push(value);
+    if (unique.length >= maxItems) {
+      break;
+    }
+  }
+
+  return unique;
+};
+
+const refineQuestionOptionsViaApiFreeLlm = async ({ questionText, options = [], correctAnswer, model }) => {
+  if (!env.apiFreeLlmApiKey) {
+    return {
+      options: normalizeOptionList(options),
+      correctAnswer: normalizeText(correctAnswer),
+      refined: false,
+    };
+  }
+
+  const safeQuestionText = normalizeText(questionText);
+  const baseOptions = normalizeOptionList(options, 8);
+  const safeCorrectAnswer = normalizeText(correctAnswer);
+
+  if (!safeQuestionText || !safeCorrectAnswer || !baseOptions.length) {
+    return {
+      options: normalizeOptionList(baseOptions),
+      correctAnswer: safeCorrectAnswer,
+      refined: false,
+    };
+  }
+
+  const optionLines = baseOptions.map((option, index) => `${index + 1}. ${option}`).join('\n');
+  const requestBody = {
+    message: [
+      'You rewrite unclear MCQ options into concise, understandable English.',
+      'Keep the question meaning unchanged and keep exactly one correct answer.',
+      'Return ONLY valid JSON with this exact shape:',
+      '{"options":["...","...","...","..."],"correctAnswer":"..."}',
+      'Rules:',
+      '- options length must be between 2 and 4',
+      '- no duplicate options',
+      '- correctAnswer must exactly match one option string',
+      '',
+      `Question: ${safeQuestionText}`,
+      `Current options:\n${optionLines}`,
+      `Known correct answer: ${safeCorrectAnswer}`,
+    ].join('\n'),
+    model: normalizeText(model, env.apiFreeLlmModel || 'apifreellm'),
+  };
+
+  try {
+    const response = await fetch(APIFREELLM_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.apiFreeLlmApiKey}`,
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return {
+        options: normalizeOptionList(baseOptions),
+        correctAnswer: safeCorrectAnswer,
+        refined: false,
+      };
+    }
+
+    const parsed = extractFirstJsonObject(data?.response || '');
+    const refinedOptions = normalizeOptionList(parsed?.options, 4);
+    let refinedCorrectAnswer = normalizeText(parsed?.correctAnswer, safeCorrectAnswer);
+
+    if (!refinedOptions.length) {
+      return {
+        options: normalizeOptionList(baseOptions),
+        correctAnswer: safeCorrectAnswer,
+        refined: false,
+      };
+    }
+
+    const hasCorrect = refinedOptions.some((option) => option.toLowerCase() === refinedCorrectAnswer.toLowerCase());
+    if (!hasCorrect) {
+      const existingMatch = refinedOptions.find((option) => option.toLowerCase() === safeCorrectAnswer.toLowerCase());
+      if (existingMatch) {
+        refinedCorrectAnswer = existingMatch;
+      } else if (refinedOptions.length < 4 && safeCorrectAnswer) {
+        refinedOptions.push(safeCorrectAnswer);
+        refinedCorrectAnswer = safeCorrectAnswer;
+      } else {
+        refinedCorrectAnswer = refinedOptions[0];
+      }
+    }
+
+    return {
+      options: normalizeOptionList(refinedOptions, 4),
+      correctAnswer: refinedCorrectAnswer,
+      refined: true,
+    };
+  } catch (error) {
+    return {
+      options: normalizeOptionList(baseOptions),
+      correctAnswer: safeCorrectAnswer,
+      refined: false,
+    };
+  }
+};
+
 const askViaApiFreeLlm = async ({ message, questionText, options, selectedAnswer, history, model }) => {
   if (!env.apiFreeLlmApiKey) {
     const error = new Error('APIFreeLLM API key is not configured. Set APIFREELLM_API_KEY in backend/.env and restart backend.');
@@ -223,4 +369,5 @@ const askQuestionDoubt = async ({ message, questionText, options = [], selectedA
 
 module.exports = {
   askQuestionDoubt,
+  refineQuestionOptionsViaApiFreeLlm,
 };

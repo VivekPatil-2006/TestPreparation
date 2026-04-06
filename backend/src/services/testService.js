@@ -1,6 +1,7 @@
 const { pool, ensureDbConnection } = require('../config/db');
 const { quoteIdent } = require('../utils/dbHelpers');
 const { getPublicTables, getTableColumnNames } = require('./analyticsService');
+const { refineQuestionOptionsViaApiFreeLlm } = require('./aiService');
 
 const TEST_SESSION_TABLE = 'test_sessions';
 const DEFAULT_QUESTION_COUNT = 30;
@@ -376,6 +377,46 @@ const buildDetailedResults = ({ storedQuestions = [], answers = {}, consideredCo
   };
 };
 
+const shouldRefineQuestionOptions = (question) => {
+  const options = Array.isArray(question?.options) ? question.options : [];
+  const normalized = options.map((option) => String(option == null ? '' : option).trim()).filter(Boolean);
+  const uniqueCount = new Set(normalized.map((option) => option.toLowerCase())).size;
+  const hasDuplicates = uniqueCount < normalized.length;
+  const hasTooFew = normalized.length < 4;
+  const hasVeryLongOption = normalized.some((option) => option.length > 120);
+
+  return hasDuplicates || hasTooFew || hasVeryLongOption;
+};
+
+const refineQuestionsForDisplay = async (questions = []) => {
+  const refined = [];
+
+  for (const question of questions) {
+    if (!shouldRefineQuestionOptions(question)) {
+      refined.push(question);
+      continue;
+    }
+
+    const result = await refineQuestionOptionsViaApiFreeLlm({
+      questionText: question.questionText,
+      options: question.options,
+      correctAnswer: question.correctAnswer,
+    });
+
+    const fallbackOptions = Array.isArray(question.options) ? question.options : [];
+    const options = Array.isArray(result.options) && result.options.length ? result.options : fallbackOptions;
+    const correctAnswer = String(result.correctAnswer || question.correctAnswer || '').trim();
+
+    refined.push({
+      ...question,
+      options,
+      correctAnswer: correctAnswer || question.correctAnswer,
+    });
+  }
+
+  return refined;
+};
+
 const startTestSession = async ({ adminEmail, tableName, tableNames = [], startRow = 1, startRowsByTable = {}, questionCount = DEFAULT_QUESTION_COUNT, timerMode = 'per_question', customMinutes }) => {
   ensureDbConnection();
   await ensureTestSessionTable();
@@ -411,8 +452,10 @@ const startTestSession = async ({ adminEmail, tableName, tableNames = [], startR
     throw error;
   }
 
-  const durationMinutes = deriveDurationMinutes(selectedQuestions.length, timerMode, customMinutes);
-  const storedQuestions = selectedQuestions;
+  const refinedQuestions = await refineQuestionsForDisplay(selectedQuestions);
+
+  const durationMinutes = deriveDurationMinutes(refinedQuestions.length, timerMode, customMinutes);
+  const storedQuestions = refinedQuestions;
 
   const insertQuery = `
     INSERT INTO ${quoteIdent(TEST_SESSION_TABLE)} (
@@ -435,9 +478,9 @@ const startTestSession = async ({ adminEmail, tableName, tableNames = [], startR
     requestedTables.join(', '),
     safeStartRow,
     endRow,
-    selectedQuestions.length,
+    refinedQuestions.length,
     durationMinutes,
-    selectedQuestions.length,
+    refinedQuestions.length,
     JSON.stringify(storedQuestions),
   ]);
 
@@ -450,10 +493,10 @@ const startTestSession = async ({ adminEmail, tableName, tableNames = [], startR
     startRowsByTable: tableStartRows,
     startRow: safeStartRow,
     endRow,
-    questionCount: selectedQuestions.length,
+    questionCount: refinedQuestions.length,
     durationMinutes,
-    totalMarks: selectedQuestions.length,
-    questions: selectedQuestions.map(({ correctAnswer, ...question }) => question),
+    totalMarks: refinedQuestions.length,
+    questions: refinedQuestions.map(({ correctAnswer, ...question }) => question),
   };
 };
 
