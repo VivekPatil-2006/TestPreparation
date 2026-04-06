@@ -2100,9 +2100,22 @@ button:disabled {
 
 .test-controls {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
   margin-top: 24px;
+}
+
+.test-controls-left,
+.test-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.test-controls-right {
+  margin-left: auto;
 }
 
 .test-controls button {

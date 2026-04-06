@@ -147,6 +147,7 @@ function TestPage({
   const [session, setSession] = useState(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState({});
+  const [skippedQuestionKeys, setSkippedQuestionKeys] = useState({});
   const [secondsLeft, setSecondsLeft] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [finalResult, setFinalResult] = useState(null);
@@ -271,6 +272,7 @@ function TestPage({
       setSession(response);
       setCurrentIndex(0);
       setAnswers({});
+      setSkippedQuestionKeys({});
       setFinalResult(null);
       setQuestionEditMode(false);
       setQuestionEditDraft(null);
@@ -296,12 +298,14 @@ function TestPage({
         sessionId: session.sessionId,
         answers,
         consideredQuestionCount,
+        skippedQuestionKeys: Object.keys(skippedQuestionKeys),
       });
 
       setFinalResult(result);
       setSession(null);
       setCurrentIndex(0);
       setAnswers({});
+      setSkippedQuestionKeys({});
       setQuestionEditMode(false);
       setQuestionEditDraft(null);
       setQuestionEditError('');
@@ -316,7 +320,7 @@ function TestPage({
     } finally {
       setSubmitting(false);
     }
-  }, [answers, onRefreshHistory, onSubmitTest, session, submitting]);
+  }, [answers, onRefreshHistory, onSubmitTest, session, skippedQuestionKeys, submitting]);
 
   const handleEndTest = async () => {
     if (!session || submitting) {
@@ -330,6 +334,27 @@ function TestPage({
     }
 
     await submitSession({ consideredQuestionCount: consideredCount });
+  };
+
+  const handleSkipQuestion = () => {
+    if (!session || submitting || !activeQuestionKey) {
+      return;
+    }
+
+    setSkippedQuestionKeys((previous) => ({
+      ...previous,
+      [activeQuestionKey]: true,
+    }));
+
+    setAnswers((previous) => {
+      const next = { ...previous };
+      delete next[activeQuestionKey];
+      return next;
+    });
+
+    if (currentIndex < (session.questionCount || 0) - 1) {
+      setCurrentIndex((previous) => previous + 1);
+    }
   };
 
   useEffect(() => {
@@ -1042,12 +1067,21 @@ function TestPage({
                     type="radio"
                     name={`q-${activeQuestionKey}`}
                     checked={isSelected}
-                    onChange={() =>
+                    onChange={() => {
                       setAnswers((previous) => ({
                         ...previous,
                         [activeQuestionKey]: option,
-                      }))
-                    }
+                      }));
+                      setSkippedQuestionKeys((previous) => {
+                        if (!previous[activeQuestionKey]) {
+                          return previous;
+                        }
+
+                        const next = { ...previous };
+                        delete next[activeQuestionKey];
+                        return next;
+                      });
+                    }}
                   />
                   {option}
                 </label>
@@ -1060,23 +1094,31 @@ function TestPage({
         </div>
 
         <div className="test-controls">
-          <button type="button" onClick={handleEndTest} disabled={submitting}>
-            {submitting ? 'Submitting...' : 'End Test'}
-          </button>
-
-          <button type="button" onClick={() => setCurrentIndex((previous) => Math.max(previous - 1, 0))} disabled={currentIndex === 0 || submitting}>
-            Previous
-          </button>
-
-          {currentIndex < session.questionCount - 1 ? (
-            <button type="button" onClick={() => setCurrentIndex((previous) => previous + 1)} disabled={submitting}>
-              Next
+          <div className="test-controls-left">
+            <button type="button" onClick={handleEndTest} disabled={submitting}>
+              {submitting ? 'Submitting...' : 'End Test'}
             </button>
-          ) : (
-            <button type="button" onClick={submitSession} disabled={submitting}>
-              {submitting ? 'Submitting...' : 'Finish Test'}
+          </div>
+
+          <div className="test-controls-right">
+            <button type="button" onClick={handleSkipQuestion} disabled={submitting}>
+              Skip Question
             </button>
-          )}
+
+            <button type="button" onClick={() => setCurrentIndex((previous) => Math.max(previous - 1, 0))} disabled={currentIndex === 0 || submitting}>
+              Previous
+            </button>
+
+            {currentIndex < session.questionCount - 1 ? (
+              <button type="button" onClick={() => setCurrentIndex((previous) => previous + 1)} disabled={submitting}>
+                Next
+              </button>
+            ) : (
+              <button type="button" onClick={submitSession} disabled={submitting}>
+                {submitting ? 'Submitting...' : 'Finish Test'}
+              </button>
+            )}
+          </div>
         </div>
 
         {error ? <div className="error-banner">{error}</div> : null}

@@ -331,12 +331,25 @@ const pickQuestionsRoundRobin = (questionPools, maxCount) => {
   return selected;
 };
 
-const buildDetailedResults = ({ storedQuestions = [], answers = {}, consideredCount }) => {
-  const safeCount = Math.min(
-    Math.max(Number(consideredCount) || storedQuestions.length, 1),
+const buildDetailedResults = ({ storedQuestions = [], answers = {}, consideredCount, skippedQuestionKeys = [] }) => {
+  const boundedCount = Math.min(
+    Math.max(Number(consideredCount) || storedQuestions.length, 0),
     storedQuestions.length
   );
-  const scoredQuestions = storedQuestions.slice(0, safeCount);
+
+  const scopedQuestions = storedQuestions.slice(0, boundedCount);
+  const skipSet = new Set(
+    (Array.isArray(skippedQuestionKeys) ? skippedQuestionKeys : [])
+      .map((key) => String(key == null ? '' : key).trim())
+      .filter(Boolean)
+  );
+
+  const scoredQuestions = scopedQuestions.filter((question) => {
+    const questionKey = String(question.questionKey == null ? '' : question.questionKey).trim();
+    const rowIdKey = String(question.rowId == null ? '' : question.rowId).trim();
+    return !skipSet.has(questionKey) && !skipSet.has(rowIdKey);
+  });
+
   let obtainedMarks = 0;
 
   const detailedResults = scoredQuestions.map((question) => {
@@ -372,7 +385,7 @@ const buildDetailedResults = ({ storedQuestions = [], answers = {}, consideredCo
 
   return {
     obtainedMarks,
-    consideredCount: safeCount,
+    consideredCount: scoredQuestions.length,
     detailedResults,
   };
 };
@@ -500,7 +513,7 @@ const startTestSession = async ({ adminEmail, tableName, tableNames = [], startR
   };
 };
 
-const completeTestSession = async ({ sessionId, adminEmail, answers = {}, consideredQuestionCount }) => {
+const completeTestSession = async ({ sessionId, adminEmail, answers = {}, consideredQuestionCount, skippedQuestionKeys = [] }) => {
   ensureDbConnection();
   await ensureTestSessionTable();
 
@@ -525,6 +538,7 @@ const completeTestSession = async ({ sessionId, adminEmail, answers = {}, consid
     storedQuestions,
     answers,
     consideredCount: consideredQuestionCount,
+    skippedQuestionKeys,
   });
 
   const updateQuery = `
