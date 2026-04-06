@@ -993,7 +993,7 @@ function TestPage({
                 </button>
               </div>
             </>
-          ) : activeOptions.length === 4 ? (
+          ) : activeOptions.length > 0 ? (
             <div className="option-list">
               {activeOptions.map((option) => {
                 const isSelected = normalizeSelectedAnswer(selectedAnswer) === normalizeSelectedAnswer(option);
@@ -1032,7 +1032,7 @@ function TestPage({
               })}
             </div>
           ) : (
-            <div className="error-banner">This question does not have 4 options and should not appear.</div>
+            <div className="error-banner">This question does not have any options.</div>
           )}
         </div>
 
