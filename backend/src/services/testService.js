@@ -3,13 +3,12 @@ const { quoteIdent } = require('../utils/dbHelpers');
 const { getPublicTables, getTableColumnNames } = require('./analyticsService');
 
 const TEST_SESSION_TABLE = 'test_sessions';
-const TEST_SESSION_QUESTIONS_TABLE = 'test_session_questions';
-const TEST_SESSION_ANSWERS_TABLE = 'test_session_answers';
 const DEFAULT_QUESTION_COUNT = 30;
 const DEFAULT_TIMER_PER_QUESTION_MINUTES = 1;
-const REQUIRED_OPTION_COLUMNS = ['option1', 'option2', 'option3', 'option4'];
-
-let legacyBackfillComplete = false;
+const OPTION_COLUMN_SETS = [
+  ['option1', 'option2', 'option3', 'option4'],
+  ['option_a', 'option_b', 'option_c', 'option_d'],
+];
 
 const getTestTables = async () => {
   const tables = await getPublicTables();
@@ -31,8 +30,10 @@ const getTestTables = async () => {
       const columnSet = new Set(columns.map((name) => String(name).toLowerCase()));
       const hasAnswer = columnSet.has('answer');
       const hasQuestionField = columnSet.has('question') || columnSet.has('prompt') || columnSet.has('title');
-      const hasAllOptions = REQUIRED_OPTION_COLUMNS.every((optionKey) => columnSet.has(optionKey));
-      return hasAnswer && hasQuestionField && hasAllOptions;
+      const hasAnyOptionColumn = OPTION_COLUMN_SETS.some((optionSet) =>
+        optionSet.some((optionKey) => columnSet.has(optionKey))
+      );
+      return hasAnswer && hasQuestionField && hasAnyOptionColumn;
     })
     .map(({ tableName }) => tableName);
 };
@@ -47,14 +48,16 @@ const getLastQuestionByTable = async (adminEmail) => {
 
   const query = `
     SELECT
-      q.source_table AS table_name,
-      MAX(q.row_number)::int AS last_row_number
+      COALESCE(
+        NULLIF(elem->>'sourceTable', ''),
+        CASE WHEN POSITION(',' IN ts.table_name) = 0 THEN ts.table_name ELSE NULL END
+      ) AS table_name,
+      MAX((elem->>'rowNumber')::int) AS last_row_number
     FROM ${quoteIdent(TEST_SESSION_TABLE)} ts
-    INNER JOIN ${quoteIdent(TEST_SESSION_QUESTIONS_TABLE)} q
-      ON q.session_id = ts.id
+    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ts.questions, '[]'::jsonb)) elem
     WHERE ts.admin_email = $1
-      AND COALESCE(q.source_table, '') <> ''
-    GROUP BY q.source_table;
+      AND (elem ? 'rowNumber')
+    GROUP BY 1;
   `;
 
   const { rows } = await pool.query(query, [adminEmail]);
@@ -73,7 +76,7 @@ const getLastQuestionByTable = async (adminEmail) => {
 const isPopulatedValue = (value) => value != null && String(value).trim() !== '';
 
 const normalizeQuestionRow = (row, rowNumber, sourceTable) => {
-  const optionKeys = ['option1', 'option2', 'option3', 'option4'];
+  const optionKeys = OPTION_COLUMN_SETS.find((optionSet) => optionSet.some((key) => isPopulatedValue(row[key]))) || OPTION_COLUMN_SETS[0];
   const options = optionKeys
     .map((key) => row[key])
     .map((value) => (value == null ? '' : String(value).trim()))
@@ -236,7 +239,7 @@ const normalizeRequestedTables = (tableName, tableNames) => {
 const ensureTestSessionTable = async () => {
   ensureDbConnection();
 
-  const sessionTableQuery = `
+  const query = `
     CREATE TABLE IF NOT EXISTS ${quoteIdent(TEST_SESSION_TABLE)} (
       id BIGSERIAL PRIMARY KEY,
       admin_email TEXT NOT NULL,
@@ -255,285 +258,12 @@ const ensureTestSessionTable = async () => {
     );
   `;
 
-  const sessionQuestionsTableQuery = `
-    CREATE TABLE IF NOT EXISTS ${quoteIdent(TEST_SESSION_QUESTIONS_TABLE)} (
-      id BIGSERIAL PRIMARY KEY,
-      session_id BIGINT NOT NULL REFERENCES ${quoteIdent(TEST_SESSION_TABLE)} (id) ON DELETE CASCADE,
-      question_order INTEGER NOT NULL,
-      question_key TEXT NOT NULL,
-      source_table TEXT,
-      row_id BIGINT,
-      row_number INTEGER NOT NULL,
-      question_text TEXT NOT NULL,
-      option1 TEXT NOT NULL,
-      option2 TEXT NOT NULL,
-      option3 TEXT NOT NULL,
-      option4 TEXT NOT NULL,
-      correct_answer TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (session_id, question_order),
-      UNIQUE (session_id, question_key)
-    );
-  `;
-
-  const sessionAnswersTableQuery = `
-    CREATE TABLE IF NOT EXISTS ${quoteIdent(TEST_SESSION_ANSWERS_TABLE)} (
-      id BIGSERIAL PRIMARY KEY,
-      session_id BIGINT NOT NULL REFERENCES ${quoteIdent(TEST_SESSION_TABLE)} (id) ON DELETE CASCADE,
-      question_key TEXT NOT NULL,
-      selected_answer TEXT NOT NULL DEFAULT '',
-      answered_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE (session_id, question_key)
-    );
-  `;
-
-  await pool.query(sessionTableQuery);
-  await pool.query(sessionQuestionsTableQuery);
-  await pool.query(sessionAnswersTableQuery);
-  await backfillLegacySessionData();
+  await pool.query(query);
 };
 
-const backfillLegacySessionData = async () => {
-  if (legacyBackfillComplete) {
-    return;
-  }
 
-  const questionsBackfillQuery = `
-    INSERT INTO ${quoteIdent(TEST_SESSION_QUESTIONS_TABLE)} (
-      session_id,
-      question_order,
-      question_key,
-      source_table,
-      row_id,
-      row_number,
-      question_text,
-      option1,
-      option2,
-      option3,
-      option4,
-      correct_answer
-    )
-    SELECT
-      ts.id AS session_id,
-      elem.ordinality::int AS question_order,
-      COALESCE(
-        NULLIF(elem.value->>'questionKey', ''),
-        CONCAT(
-          COALESCE(NULLIF(elem.value->>'sourceTable', ''), ts.table_name),
-          ':',
-          COALESCE(NULLIF(elem.value->>'rowId', ''), NULLIF(elem.value->>'rowNumber', ''), elem.ordinality::text)
-        )
-      ) AS question_key,
-      COALESCE(NULLIF(elem.value->>'sourceTable', ''), CASE WHEN POSITION(',' IN ts.table_name) = 0 THEN ts.table_name ELSE '' END) AS source_table,
-      CASE WHEN COALESCE(elem.value->>'rowId', '') ~ '^[0-9]+$' THEN (elem.value->>'rowId')::bigint ELSE NULL END AS row_id,
-      CASE WHEN COALESCE(elem.value->>'rowNumber', '') ~ '^[0-9]+$' THEN (elem.value->>'rowNumber')::int ELSE elem.ordinality::int END AS row_number,
-      COALESCE(elem.value->>'questionText', '') AS question_text,
-      COALESCE(elem.value->'options'->>0, '') AS option1,
-      COALESCE(elem.value->'options'->>1, '') AS option2,
-      COALESCE(elem.value->'options'->>2, '') AS option3,
-      COALESCE(elem.value->'options'->>3, '') AS option4,
-      COALESCE(elem.value->>'correctAnswer', '') AS correct_answer
-    FROM ${quoteIdent(TEST_SESSION_TABLE)} ts
-    CROSS JOIN LATERAL jsonb_array_elements(COALESCE(ts.questions, '[]'::jsonb)) WITH ORDINALITY AS elem(value, ordinality)
-    LEFT JOIN ${quoteIdent(TEST_SESSION_QUESTIONS_TABLE)} q
-      ON q.session_id = ts.id AND q.question_order = elem.ordinality::int
-    WHERE q.id IS NULL
-      AND COALESCE(elem.value->>'questionText', '') <> '';
-  `;
 
-  const answersBackfillQuery = `
-    INSERT INTO ${quoteIdent(TEST_SESSION_ANSWERS_TABLE)} (
-      session_id,
-      question_key,
-      selected_answer,
-      answered_at
-    )
-    SELECT
-      ts.id AS session_id,
-      kv.key AS question_key,
-      COALESCE(kv.value, '') AS selected_answer,
-      COALESCE(ts.completed_at, ts.started_at, NOW()) AS answered_at
-    FROM ${quoteIdent(TEST_SESSION_TABLE)} ts
-    CROSS JOIN LATERAL jsonb_each_text(COALESCE(ts.answers, '{}'::jsonb)) AS kv
-    LEFT JOIN ${quoteIdent(TEST_SESSION_ANSWERS_TABLE)} a
-      ON a.session_id = ts.id AND a.question_key = kv.key
-    WHERE a.id IS NULL;
-  `;
 
-  await pool.query(questionsBackfillQuery);
-  await pool.query(answersBackfillQuery);
-  legacyBackfillComplete = true;
-};
-
-const toStoredQuestionPayload = (question) => ({
-  questionKey: String(question.questionKey || ''),
-  sourceTable: String(question.sourceTable || ''),
-  rowId: question.rowId == null ? null : Number(question.rowId),
-  rowNumber: Number(question.rowNumber) || 0,
-  questionText: String(question.questionText || ''),
-  options: Array.isArray(question.options) ? question.options.map((option) => String(option == null ? '' : option)) : ['', '', '', ''],
-  correctAnswer: String(question.correctAnswer || ''),
-});
-
-const insertSessionQuestions = async ({ client, sessionId, questions }) => {
-  if (!questions.length) {
-    return;
-  }
-
-  const values = [];
-  const placeholders = questions
-    .map((question, index) => {
-      const base = index * 12;
-      values.push(
-        sessionId,
-        index + 1,
-        question.questionKey,
-        question.sourceTable,
-        Number.isFinite(Number(question.rowId)) ? Number(question.rowId) : null,
-        Number(question.rowNumber) || index + 1,
-        question.questionText,
-        question.options[0] || '',
-        question.options[1] || '',
-        question.options[2] || '',
-        question.options[3] || '',
-        question.correctAnswer
-      );
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 12})`;
-    })
-    .join(', ');
-
-  const insertQuery = `
-    INSERT INTO ${quoteIdent(TEST_SESSION_QUESTIONS_TABLE)} (
-      session_id,
-      question_order,
-      question_key,
-      source_table,
-      row_id,
-      row_number,
-      question_text,
-      option1,
-      option2,
-      option3,
-      option4,
-      correct_answer
-    )
-    VALUES ${placeholders};
-  `;
-
-  await client.query(insertQuery, values);
-};
-
-const fetchSessionQuestions = async ({ sessionId, fallbackSessionRow = null }) => {
-  const query = `
-    SELECT
-      question_key,
-      source_table,
-      row_id,
-      row_number,
-      question_text,
-      option1,
-      option2,
-      option3,
-      option4,
-      correct_answer
-    FROM ${quoteIdent(TEST_SESSION_QUESTIONS_TABLE)}
-    WHERE session_id = $1
-    ORDER BY question_order ASC;
-  `;
-
-  const { rows } = await pool.query(query, [sessionId]);
-  if (rows.length) {
-    return rows.map((row) => ({
-      questionKey: row.question_key,
-      sourceTable: row.source_table,
-      rowId: row.row_id,
-      rowNumber: row.row_number,
-      questionText: row.question_text,
-      options: [row.option1, row.option2, row.option3, row.option4],
-      correctAnswer: row.correct_answer,
-    }));
-  }
-
-  const legacyQuestions = Array.isArray(fallbackSessionRow?.questions) ? fallbackSessionRow.questions : [];
-  return legacyQuestions.map((question, index) => ({
-    questionKey: question.questionKey || `${question.sourceTable || fallbackSessionRow?.table_name || 'table'}:${question.rowId || question.rowNumber || index + 1}`,
-    sourceTable: question.sourceTable || '',
-    rowId: question.rowId ?? null,
-    rowNumber: Number(question.rowNumber) || index + 1,
-    questionText: question.questionText || '',
-    options: Array.isArray(question.options) ? question.options : ['', '', '', ''],
-    correctAnswer: question.correctAnswer || '',
-  }));
-};
-
-const normalizeAnswersInput = (answers) => {
-  if (!answers || typeof answers !== 'object' || Array.isArray(answers)) {
-    return {};
-  }
-
-  return Object.entries(answers).reduce((accumulator, [key, value]) => {
-    const answerKey = String(key || '').trim();
-    if (!answerKey) {
-      return accumulator;
-    }
-
-    accumulator[answerKey] = String(value == null ? '' : value).trim();
-    return accumulator;
-  }, {});
-};
-
-const saveSessionAnswers = async ({ client, sessionId, answersMap }) => {
-  await client.query(`DELETE FROM ${quoteIdent(TEST_SESSION_ANSWERS_TABLE)} WHERE session_id = $1`, [sessionId]);
-
-  const entries = Object.entries(answersMap);
-  if (!entries.length) {
-    return;
-  }
-
-  const values = [];
-  const placeholders = entries
-    .map(([questionKey, selectedAnswer], index) => {
-      const base = index * 4;
-      values.push(sessionId, questionKey, selectedAnswer, new Date().toISOString());
-      return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4})`;
-    })
-    .join(', ');
-
-  const query = `
-    INSERT INTO ${quoteIdent(TEST_SESSION_ANSWERS_TABLE)} (
-      session_id,
-      question_key,
-      selected_answer,
-      answered_at
-    )
-    VALUES ${placeholders}
-    ON CONFLICT (session_id, question_key)
-    DO UPDATE SET
-      selected_answer = EXCLUDED.selected_answer,
-      answered_at = EXCLUDED.answered_at;
-  `;
-
-  await client.query(query, values);
-};
-
-const getStoredAnswersMap = async ({ sessionId, fallbackSessionRow = null }) => {
-  const query = `
-    SELECT question_key, selected_answer
-    FROM ${quoteIdent(TEST_SESSION_ANSWERS_TABLE)}
-    WHERE session_id = $1;
-  `;
-
-  const { rows } = await pool.query(query, [sessionId]);
-  if (rows.length) {
-    return rows.reduce((accumulator, row) => {
-      accumulator[String(row.question_key)] = String(row.selected_answer || '');
-      return accumulator;
-    }, {});
-  }
-
-  const legacyAnswers = fallbackSessionRow?.answers;
-  return legacyAnswers && typeof legacyAnswers === 'object' && !Array.isArray(legacyAnswers) ? legacyAnswers : {};
-};
 
 const deriveDurationMinutes = (questionCount, timerMode, customMinutes) => {
   if (timerMode === 'custom') {
@@ -682,50 +412,36 @@ const startTestSession = async ({ adminEmail, tableName, tableNames = [], startR
   }
 
   const durationMinutes = deriveDurationMinutes(selectedQuestions.length, timerMode, customMinutes);
-  const storedQuestions = selectedQuestions.map(toStoredQuestionPayload);
+  const storedQuestions = selectedQuestions;
 
-  const client = await pool.connect();
-  let session;
+  const insertQuery = `
+    INSERT INTO ${quoteIdent(TEST_SESSION_TABLE)} (
+      admin_email,
+      table_name,
+      start_row,
+      end_row,
+      question_count,
+      duration_minutes,
+      total_marks,
+      questions,
+      status
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, 'in_progress')
+    RETURNING *;
+  `;
 
-  try {
-    await client.query('BEGIN');
+  const { rows } = await pool.query(insertQuery, [
+    adminEmail,
+    requestedTables.join(', '),
+    safeStartRow,
+    endRow,
+    selectedQuestions.length,
+    durationMinutes,
+    selectedQuestions.length,
+    JSON.stringify(storedQuestions),
+  ]);
 
-    const insertQuery = `
-      INSERT INTO ${quoteIdent(TEST_SESSION_TABLE)} (
-        admin_email,
-        table_name,
-        start_row,
-        end_row,
-        question_count,
-        duration_minutes,
-        total_marks,
-        questions,
-        status
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, 'in_progress')
-      RETURNING *;
-    `;
-
-    const { rows } = await client.query(insertQuery, [
-      adminEmail,
-      requestedTables.join(', '),
-      safeStartRow,
-      endRow,
-      selectedQuestions.length,
-      durationMinutes,
-      selectedQuestions.length,
-      JSON.stringify(storedQuestions),
-    ]);
-
-    session = rows[0];
-    await insertSessionQuestions({ client, sessionId: session.id, questions: storedQuestions });
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  const session = rows[0];
 
   return {
     sessionId: session.id,
@@ -761,52 +477,37 @@ const completeTestSession = async ({ sessionId, adminEmail, answers = {}, consid
     throw error;
   }
 
-  const storedQuestions = await fetchSessionQuestions({ sessionId: session.id, fallbackSessionRow: session });
-  const normalizedAnswersMap = normalizeAnswersInput(answers);
+  const storedQuestions = Array.isArray(session.questions) ? session.questions : [];
   const { obtainedMarks, consideredCount: safeConsideredCount, detailedResults } = buildDetailedResults({
     storedQuestions,
-    answers: normalizedAnswersMap,
+    answers,
     consideredCount: consideredQuestionCount,
   });
 
-  const client = await pool.connect();
-  let updatedSession;
+  const updateQuery = `
+    UPDATE ${quoteIdent(TEST_SESSION_TABLE)}
+    SET
+      status = 'completed',
+      answers = $1::jsonb,
+      obtained_marks = $2,
+      total_marks = $3,
+      question_count = $4,
+      completed_at = NOW()
+    WHERE id = $5 AND admin_email = $6
+    RETURNING *;
+  `;
 
-  try {
-    await client.query('BEGIN');
+  const updatedAnswers = answers || {};
+  const { rows: updatedRows } = await pool.query(updateQuery, [
+    JSON.stringify(updatedAnswers),
+    obtainedMarks,
+    safeConsideredCount,
+    safeConsideredCount,
+    sessionId,
+    adminEmail,
+  ]);
 
-    await saveSessionAnswers({ client, sessionId: session.id, answersMap: normalizedAnswersMap });
-
-    const updateQuery = `
-      UPDATE ${quoteIdent(TEST_SESSION_TABLE)}
-      SET
-        status = 'completed',
-        answers = $1::jsonb,
-        obtained_marks = $2,
-        total_marks = $3,
-        question_count = $4,
-        completed_at = NOW()
-      WHERE id = $5 AND admin_email = $6
-      RETURNING *;
-    `;
-
-    const { rows: updatedRows } = await client.query(updateQuery, [
-      JSON.stringify(normalizedAnswersMap),
-      obtainedMarks,
-      safeConsideredCount,
-      safeConsideredCount,
-      session.id,
-      adminEmail,
-    ]);
-
-    updatedSession = updatedRows[0];
-    await client.query('COMMIT');
-  } catch (error) {
-    await client.query('ROLLBACK');
-    throw error;
-  } finally {
-    client.release();
-  }
+  const updatedSession = updatedRows[0];
 
   return {
     sessionId: updatedSession.id,
@@ -849,8 +550,8 @@ const getTestSessionDetails = async ({ sessionId, adminEmail }) => {
     throw error;
   }
 
-  const storedQuestions = await fetchSessionQuestions({ sessionId: session.id, fallbackSessionRow: session });
-  const storedAnswers = await getStoredAnswersMap({ sessionId: session.id, fallbackSessionRow: session });
+  const storedQuestions = Array.isArray(session.questions) ? session.questions : [];
+  const storedAnswers = session.answers && typeof session.answers === 'object' ? session.answers : {};
   const { obtainedMarks, consideredCount, detailedResults } = buildDetailedResults({
     storedQuestions,
     answers: storedAnswers,
