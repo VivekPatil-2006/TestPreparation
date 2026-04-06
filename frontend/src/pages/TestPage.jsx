@@ -21,15 +21,38 @@ const getQuestionOptions = (question) => {
     return [];
   }
 
+  const normalizeOptions = (values) => {
+    const unique = [];
+    const seen = new Set();
+
+    for (const rawValue of values) {
+      const value = String(rawValue == null ? '' : rawValue).trim();
+      if (!value) {
+        continue;
+      }
+
+      const normalizedKey = value.toLowerCase();
+      if (seen.has(normalizedKey)) {
+        continue;
+      }
+
+      seen.add(normalizedKey);
+      unique.push(value);
+
+      if (unique.length >= 4) {
+        break;
+      }
+    }
+
+    return unique;
+  };
+
   if (Array.isArray(question.options)) {
-    return question.options.map((option) => String(option).trim()).filter(Boolean);
+    return normalizeOptions(question.options);
   }
 
   const fallbackKeys = ['option1', 'option2', 'option3', 'option4', 'option_a', 'option_b', 'option_c', 'option_d'];
-  return fallbackKeys
-    .map((key) => question[key])
-    .map((option) => (option == null ? '' : String(option).trim()))
-    .filter(Boolean);
+  return normalizeOptions(fallbackKeys.map((key) => question[key]));
 };
 
 const getQuestionKey = (question, index) => String(question?.questionKey || question?.rowId || question?.id || question?.rowNumber || index);
