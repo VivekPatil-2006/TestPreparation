@@ -49,7 +49,7 @@ const NAV_ITEMS = [
 ];
 
 function App() {
-  const [authToken, setAuthToken] = useState('');
+  const [authToken, setAuthToken] = useState(() => localStorage.getItem('authToken') || '');
   const [activeTab, setActiveTab] = useState(() => {
     const savedTab = localStorage.getItem(ACTIVE_TAB_STORAGE_KEY);
     const validTabKeys = NAV_ITEMS.map((item) => item.key);

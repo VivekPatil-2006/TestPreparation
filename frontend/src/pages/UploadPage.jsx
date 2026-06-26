@@ -7,7 +7,7 @@ const UPLOAD_CONSTRAINTS = {
   maxFileSizeMB: 50,
 };
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://testpreparation-oktl.onrender.com/api';
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
 const CSV_TEMPLATE_HEADERS = ['question', 'option1', 'option2', 'option3', 'option4', 'answer'];
 const CSV_TEMPLATE_ROWS = [
