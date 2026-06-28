@@ -20,6 +20,14 @@ const isTrustedVercelPreviewOrigin = (origin) => {
     return false;
   }
 };
+const isLocalDevelopmentOrigin = (origin) => {
+  try {
+    const parsed = new URL(origin);
+    return ['localhost', '127.0.0.1', '::1'].includes(parsed.hostname) && ['http:', 'https:'].includes(parsed.protocol);
+  } catch (error) {
+    return false;
+  }
+};
 
 app.use(
 	cors({
@@ -29,7 +37,11 @@ app.use(
       }
 
       const normalizedOrigin = normalizeOrigin(origin);
-      if (allowedOrigins.has(normalizedOrigin) || isTrustedVercelPreviewOrigin(normalizedOrigin)) {
+      if (
+        allowedOrigins.has(normalizedOrigin) ||
+        isTrustedVercelPreviewOrigin(normalizedOrigin) ||
+        isLocalDevelopmentOrigin(normalizedOrigin)
+      ) {
         return callback(null, true);
       }
 
