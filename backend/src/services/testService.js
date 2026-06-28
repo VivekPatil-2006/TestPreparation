@@ -267,6 +267,10 @@ const ensureTestSessionTable = async () => {
 
 
 const deriveDurationMinutes = (questionCount, timerMode, customMinutes) => {
+  if (timerMode === 'unlimited') {
+    return 0;
+  }
+
   if (timerMode === 'custom') {
     const parsedCustomMinutes = Number(customMinutes);
     return Number.isFinite(parsedCustomMinutes) && parsedCustomMinutes > 0

@@ -1,11 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-const QUESTION_COUNT = 20;
+const DEFAULT_QUESTION_COUNT = 20;
 
 const formatSeconds = (secondsLeft) => {
   const minutes = String(Math.floor(secondsLeft / 60)).padStart(2, '0');
   const seconds = String(secondsLeft % 60).padStart(2, '0');
   return `${minutes}:${seconds}`;
+};
+
+const getTimerSummaryText = (timerMode, customMinutes) => {
+  if (timerMode === 'unlimited') {
+    return 'Unlimited';
+  }
+
+  if (timerMode === 'custom') {
+    return `${Number(customMinutes) || 0} minute total`;
+  }
+
+  return '1 minute per question';
 };
 
 const getQuestionText = (question) => {
@@ -137,8 +149,8 @@ function TestPage({
 }) {
   const [selectedTables, setSelectedTables] = useState([]);
   const [tableSearch, setTableSearch] = useState('');
-  const [defaultStartRow, setDefaultStartRow] = useState(1);
   const [startRowsByTable, setStartRowsByTable] = useState({});
+  const [questionCount, setQuestionCount] = useState(DEFAULT_QUESTION_COUNT);
   const [timerMode, setTimerMode] = useState('per_question');
   const [customMinutes, setCustomMinutes] = useState(30);
   const [error, setError] = useState('');
@@ -172,14 +184,16 @@ function TestPage({
   }, [tableSearch, visibleTables]);
 
   const effectiveDurationMinutes = useMemo(() => {
+    if (timerMode === 'unlimited') {
+      return 0;
+    }
+
     if (timerMode === 'custom') {
       return Math.max(Number(customMinutes) || 0, 1);
     }
 
-    return Math.max(Number(QUESTION_COUNT) || 30, 1);
-  }, [timerMode, customMinutes]);
-
-  const defaultStartRowSafe = Math.max(Number(defaultStartRow) || 1, 1);
+    return Math.max(Number(questionCount) || DEFAULT_QUESTION_COUNT, 1);
+  }, [timerMode, customMinutes, questionCount]);
 
   useEffect(() => {
     setSelectedTables((previous) => previous.filter((table) => visibleTables.includes(table)));
@@ -220,10 +234,6 @@ function TestPage({
       return 'Select at least one table to start test.';
     }
 
-    if (!Number.isFinite(Number(defaultStartRow)) || Number(defaultStartRow) < 1) {
-      return 'Default start row must be at least 1.';
-    }
-
     const invalidTable = selectedTables.find((table) => {
       const value = startRowsByTable[table];
       return !Number.isFinite(Number(value)) || Number(value) < 1;
@@ -231,6 +241,10 @@ function TestPage({
 
     if (invalidTable) {
       return `Start row for ${invalidTable} must be at least 1.`;
+    }
+
+    if (!Number.isFinite(Number(questionCount)) || Number(questionCount) < 1) {
+      return 'Question count must be at least 1.';
     }
 
     if (timerMode === 'custom' && (!Number.isFinite(Number(customMinutes)) || Number(customMinutes) < 1)) {
@@ -260,11 +274,11 @@ function TestPage({
       const response = await onStartTest({
         tableName: selectedTables[0],
         tableNames: selectedTables,
-        startRow: Number(defaultStartRowSafe),
+        startRow: 1,
         startRowsByTable: Object.fromEntries(
-          selectedTables.map((table) => [table, Math.max(Number(startRowsByTable[table]) || defaultStartRowSafe, 1)])
+          selectedTables.map((table) => [table, Math.max(Number(startRowsByTable[table]) || 1, 1)])
         ),
-        questionCount: QUESTION_COUNT,
+        questionCount: Number(questionCount) || DEFAULT_QUESTION_COUNT,
         timerMode,
         customMinutes: timerMode === 'custom' ? Number(customMinutes) : undefined,
       });
@@ -278,7 +292,7 @@ function TestPage({
       setQuestionEditDraft(null);
       setQuestionEditError('');
       setQuestionEditSuccess('');
-      setSecondsLeft((response.durationMinutes || effectiveDurationMinutes) * 60);
+      setSecondsLeft(timerMode === 'unlimited' ? 0 : (response.durationMinutes || effectiveDurationMinutes) * 60);
     } catch (err) {
       setError(err.message || 'Unable to start test');
     } finally {
@@ -327,7 +341,7 @@ function TestPage({
       return;
     }
 
-    const consideredCount = Math.min(Math.max(currentIndex + 1, 1), session.questionCount || QUESTION_COUNT);
+    const consideredCount = Math.min(Math.max(currentIndex + 1, 1), session.questionCount || DEFAULT_QUESTION_COUNT);
     const proceed = window.confirm(`End test now? Only first ${consideredCount} question(s) will be considered.`);
     if (!proceed) {
       return;
@@ -708,11 +722,11 @@ function TestPage({
                 </div>
                 <div className="test-overview-card">
                   <span>Questions</span>
-                  <strong>{QUESTION_COUNT}</strong>
+                  <strong>{questionCount}</strong>
                 </div>
                 <div className="test-overview-card">
                   <span>Timer</span>
-                  <strong>{timerMode === 'custom' ? `${customMinutes || 0} min` : `${QUESTION_COUNT} min`}</strong>
+                  <strong>{timerMode === 'custom' ? `${customMinutes || 0} min` : `${questionCount} min`}</strong>
                 </div>
                 <div className="test-overview-card">
                   <span>Mode</span>
@@ -831,13 +845,13 @@ function TestPage({
                     <p>Tune timer and defaults before launching the test.</p>
                   </div>
 
-                  <label htmlFor="start-row" className="test-setup-label">Default Start Row (for new selections)</label>
+                  <label htmlFor="question-count" className="test-setup-label">Number of Questions</label>
                   <input
-                    id="start-row"
+                    id="question-count"
                     type="number"
                     min="1"
-                    value={defaultStartRow}
-                    onChange={(event) => setDefaultStartRow(event.target.value)}
+                    value={questionCount}
+                    onChange={(event) => setQuestionCount(event.target.value)}
                   />
 
                   <label htmlFor="timer-mode" className="test-setup-label">Defined Timer Option</label>
@@ -849,6 +863,7 @@ function TestPage({
                   >
                     <option value="per_question">Default: 1 minute per question</option>
                     <option value="custom">Defined total timer</option>
+                    <option value="unlimited">Unlimited (no countdown)</option>
                   </select>
 
                   {timerMode === 'custom' ? (
@@ -867,7 +882,7 @@ function TestPage({
                   <div className="test-setup-details">
                     <p className="test-detail-row">
                       <span className="test-detail-label">Questions:</span>
-                      <span className="test-detail-value">{QUESTION_COUNT}</span>
+                      <span className="test-detail-value">{questionCount}</span>
                     </p>
                     <p className="test-detail-row">
                       <span className="test-detail-label">Range:</span>
@@ -875,7 +890,7 @@ function TestPage({
                     </p>
                     <p className="test-detail-row">
                       <span className="test-detail-label">Timer:</span>
-                      <span className="test-detail-value">{timerMode === 'custom' ? `${customMinutes || 0} minute total` : '1 minute per question'}</span>
+                      <span className="test-detail-value">{getTimerSummaryText(timerMode, customMinutes)}</span>
                     </p>
                     <p className="test-detail-row">
                       <span className="test-detail-label">Mode:</span>
@@ -938,10 +953,10 @@ function TestPage({
                 </div>
 
                 <div className="upload-details-box">
-                  <p className="detail-item"><strong>Questions:</strong> {QUESTION_COUNT} (combined from selected tables)</p>
+                  <p className="detail-item"><strong>Questions:</strong> {questionCount} (combined from selected tables)</p>
                   <p className="detail-item">
                     <strong>Timer:</strong>{' '}
-                    {timerMode === 'custom' ? `${customMinutes} minute total` : '1 minute per question'}
+                    {getTimerSummaryText(timerMode, customMinutes)}
                   </p>
                 </div>
               </div>
@@ -967,7 +982,7 @@ function TestPage({
             <h2>{session.tableName} Test</h2>
             <p className="subtle-copy">Rows {session.startRow} to {Math.max(session.endRow - 1, session.startRow)} | {session.questionCount} questions</p>
           </div>
-          <div className="timer-chip">Time Left: {formatSeconds(secondsLeft)}</div>
+          <div className="timer-chip">Time Left: {timerMode === 'unlimited' ? 'Unlimited' : formatSeconds(secondsLeft)}</div>
         </div>
 
         <p className="question-count">

@@ -201,27 +201,7 @@ const getAnalyticsSnapshot = async () => {
 
     let rows;
     const query = `
-      WITH table_list AS (
-        SELECT
-          c.relname AS table_name,
-          COALESCE(
-            s.n_live_tup::bigint,
-            GREATEST(c.reltuples, 0)::bigint,
-            0::bigint
-          ) AS row_count,
-          GREATEST(
-            COALESCE(s.last_vacuum, 'epoch'::timestamptz),
-            COALESCE(s.last_autovacuum, 'epoch'::timestamptz),
-            COALESCE(s.last_analyze, 'epoch'::timestamptz),
-            COALESCE(s.last_autoanalyze, 'epoch'::timestamptz)
-          ) AS last_activity_at
-        FROM pg_class c
-        INNER JOIN pg_namespace n ON n.oid = c.relnamespace
-        LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
-        WHERE n.nspname = 'public'
-          AND c.relkind = 'r'
-      ),
-      column_list AS (
+      WITH column_list AS (
         SELECT
           table_name,
           array_agg(column_name ORDER BY ordinal_position) AS columns
@@ -230,25 +210,55 @@ const getAnalyticsSnapshot = async () => {
         GROUP BY table_name
       )
       SELECT
-        t.table_name,
-        t.row_count,
-        t.last_activity_at,
+        c.table_name,
         COALESCE(array_length(c.columns, 1), 0) AS column_count,
         COALESCE(c.columns, ARRAY[]::text[]) AS columns
-      FROM table_list t
-      LEFT JOIN column_list c ON c.table_name = t.table_name
-      ORDER BY t.table_name;
+      FROM column_list c
+      ORDER BY c.table_name;
     `;
 
     const result = await pool.query(query);
     rows = result.rows;
-  
-    const tableDetails = rows.map((row) => ({
-      tableName: row.table_name,
-      rowCount: Number(row.row_count) || 0,
-      lastActivityAt: row.last_activity_at ? new Date(row.last_activity_at).toISOString() : null,
-      columnCount: Number(row.column_count) || 0,
-      columns: Array.isArray(row.columns) ? row.columns : [],
+
+    const tableDetails = await Promise.all(rows.map(async (row) => {
+      const tableName = row.table_name;
+      let rowCount = 0;
+      let lastActivityAt = null;
+
+      if (tableName && tableName !== TEST_SESSIONS_TABLE) {
+        try {
+          const countResult = await pool.query(`SELECT COUNT(*)::bigint AS row_count FROM ${tableName}`);
+          rowCount = Number(countResult.rows[0]?.row_count) || 0;
+        } catch (error) {
+          rowCount = 0;
+        }
+      }
+
+      if (tableName === TEST_SESSIONS_TABLE) {
+        try {
+          const statsResult = await pool.query(`
+            SELECT
+              GREATEST(
+                COALESCE(MAX(started_at), 'epoch'::timestamptz),
+                COALESCE(MAX(completed_at), 'epoch'::timestamptz)
+              ) AS last_activity_at
+            FROM ${tableName}
+          `);
+          lastActivityAt = statsResult.rows[0]?.last_activity_at
+            ? new Date(statsResult.rows[0].last_activity_at).toISOString()
+            : null;
+        } catch (error) {
+          lastActivityAt = null;
+        }
+      }
+
+      return {
+        tableName,
+        rowCount,
+        lastActivityAt,
+        columnCount: Number(row.column_count) || 0,
+        columns: Array.isArray(row.columns) ? row.columns : [],
+      };
     }));
 
     const totalRows = tableDetails.reduce((sum, table) => sum + table.rowCount, 0);

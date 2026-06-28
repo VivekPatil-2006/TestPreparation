@@ -370,7 +370,7 @@ function HistoryPage({ history = [], historyLoading = false, historyError = '', 
                     </div>
                     <div className="detail">
                       <span className="detail-label">Duration:</span>
-                      <span className="detail-value">{item.durationMinutes} min</span>
+                      <span className="detail-value">{item.durationMinutes === 0 ? 'Unlimited' : `${item.durationMinutes} min`}</span>
                     </div>
                     <div className="detail">
                       <span className="detail-label">Date:</span>
