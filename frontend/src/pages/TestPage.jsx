@@ -196,7 +196,12 @@ function TestPage({
   }, [timerMode, customMinutes, questionCount]);
 
   useEffect(() => {
-    setSelectedTables((previous) => previous.filter((table) => visibleTables.includes(table)));
+    setSelectedTables((previous) => {
+      const next = previous.filter((table) => visibleTables.includes(table));
+      return next.length === previous.length && next.every((table, index) => table === previous[index])
+        ? previous
+        : next;
+    });
   }, [visibleTables]);
 
   useEffect(() => {
@@ -209,7 +214,13 @@ function TestPage({
         const parsed = Math.max(Number(rawValue) || suggestedStart, 1);
         next[table] = parsed;
       });
-      return next;
+
+      const previousKeys = Object.keys(previous || {});
+      const nextKeys = Object.keys(next);
+      const keysMatch = previousKeys.length === nextKeys.length && previousKeys.every((key) => nextKeys.includes(key));
+      const valuesMatch = nextKeys.every((key) => Number(previous[key]) === Number(next[key]));
+
+      return keysMatch && valuesMatch ? previous : next;
     });
   }, [selectedTables, tableProgressByTable]);
 
@@ -372,10 +383,10 @@ function TestPage({
   };
 
   useEffect(() => {
-    if (session && secondsLeft === 0 && !submitting) {
+    if (session && secondsLeft === 0 && !submitting && timerMode !== 'unlimited') {
       void submitSession();
     }
-  }, [secondsLeft, session, submitting, submitSession]);
+  }, [secondsLeft, session, submitting, submitSession, timerMode]);
 
   const handleCancelConfirm = () => {
     setShowConfirmDialog(false);
